@@ -101,9 +101,15 @@ def build_dataset(root: Path, n_groups: int, per_group: int, seed: int) -> Path:
         mask_dir = raw / "_masks" / source_id
         mask_dir.mkdir(parents=True, exist_ok=True)
         prevalence = float(rng.uniform(0.35, 0.65))
+        posture_counts = {"arched": 0, "normal": 0}
 
         for index in range(per_group):
             arched = bool(rng.random() < prevalence)
+            label = "arched" if arched else "normal"
+            passage_id = (
+                f"{source_id}_{label}_passage_{posture_counts[label] // 2:03d}"
+            )
+            posture_counts[label] += 1
             base = float(rng.uniform(26.0, 40.0) if arched else rng.uniform(0.0, 8.0))
             arch = max(0.0, base + float(rng.normal(0.0, 3.5)))
             frame, keypoints, mask = render_cow(arch, rng)
@@ -114,7 +120,10 @@ def build_dataset(root: Path, n_groups: int, per_group: int, seed: int) -> Path:
             truth.append(
                 {
                     "sample_id": f"{source_id}_{index:08d}",
-                    "label": "arched" if arched else "normal",
+                    "label": label,
+                    # Each synthetic passage contains one posture and usually
+                    # two frames, matching grouped-evaluation's GT contract.
+                    "passage_id": passage_id,
                     "mask_path": str(mask_path.resolve()),
                     "keypoints_json": json.dumps(
                         [[round(float(x), 2), round(float(y), 2)] for x, y in keypoints]
@@ -190,6 +199,7 @@ def main() -> None:
 
     # Inject the synthetic labels and keypoints that a human would supply in F2/F3.
     frame["label"] = frame["sample_id"].map(truth["label"]).fillna("")
+    frame["passage_id"] = frame["sample_id"].map(truth["passage_id"]).fillna("")
     frame["keypoints_json"] = frame["sample_id"].map(truth["keypoints_json"]).fillna("")
     frame["reviewed_by"] = "synthetic"
     atomic_write_csv(frame, manifest)
@@ -207,7 +217,15 @@ def main() -> None:
             "--models", "geometry",
         ],
     )
-    run("06_report", ["scripts/06_report.py", "--run-dir", str(args.run_dir), "--manifest", str(manifest)])
+    run(
+        "06_report",
+        [
+            "scripts/06_report.py",
+            "--run-dir", str(args.run_dir),
+            "--manifest", str(manifest),
+            "--group-column", "passage_id",
+        ],
+    )
 
     print("\nSMOKE TEST PASSED - plumbing only. These numbers are not evidence.")
 

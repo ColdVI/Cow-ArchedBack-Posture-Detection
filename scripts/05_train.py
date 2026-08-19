@@ -22,6 +22,10 @@ from cowarch.splits import assert_no_group_leakage
 KEYPOINT_FEATURES = [
     "kp_sagitta_norm",
     "kp_mean_deviation_norm",
+    # Signed, normalized deviation is what lets the baseline distinguish an
+    # upward arch from an equally large downward sag. Pixel-height fields stay
+    # available for inspection but are excluded here to avoid scale leakage.
+    "kp_mean_signed_deviation_norm",
     "kp_quad_peak_norm",
     "kp_back_deflection_deg",
     "kp_menger_curvature_norm",

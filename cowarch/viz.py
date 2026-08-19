@@ -41,7 +41,7 @@ def panel_detections(ax, frame, detections, box=None) -> None:
     _show(ax, frame, f"2. detections (n={len(detections)})")
     if frame is None:
         return
-    for candidate_box, score, _ in detections:
+    for index, (candidate_box, score, _) in enumerate(detections):
         x1, y1, x2, y2 = [float(v) for v in candidate_box]
         chosen = box is not None and np.allclose(candidate_box, box)
         ax.add_patch(
@@ -55,7 +55,7 @@ def panel_detections(ax, frame, detections, box=None) -> None:
                 linestyle="-" if chosen else "--",
             )
         )
-        ax.text(x1, max(y1 - 4, 8), f"cow {score:.2f}", color=ACCENT, fontsize=8)
+        ax.text(x1, max(y1 - 4, 8), f"[{index}] cow {score:.2f}", color=ACCENT, fontsize=8)
 
 
 def panel_mask(ax, crop, mask) -> None:

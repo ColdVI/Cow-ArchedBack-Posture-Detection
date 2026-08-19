@@ -5,7 +5,7 @@ frames the classifier is least sure about -> more human labels.
 
 Two invariants are enforced here rather than left to notebook discipline:
 
-1. The test split is never placed in the active-learning pool.
+1. Only the training split may seed or enter the active-learning pool.
 2. The model only reorders what a human still has to decide. It never writes a
    label.
 """
@@ -98,14 +98,38 @@ def assert_pool_excludes_test(frame: pd.DataFrame, pool_mask: np.ndarray) -> Non
         )
 
 
-def build_pool_mask(frame: pd.DataFrame, labelable_splits=("train", "val")) -> np.ndarray:
-    """Unlabeled, accepted rows outside the test split."""
+def _validate_labelable_splits(labelable_splits: tuple[str, ...]) -> tuple[str, ...]:
+    """Return normalized pool splits, rejecting every non-training split."""
+    if isinstance(labelable_splits, str):
+        splits = (labelable_splits,)
+    else:
+        splits = tuple(str(split) for split in labelable_splits)
+    if not splits:
+        raise ValueError("labelable_splits must contain 'train'")
+
+    invalid = sorted(set(splits) - {"train"})
+    if "test" in invalid:
+        raise TestSetLeakError(
+            "The test split cannot enter the active-learning pool. "
+            "Test frames must be labeled separately, in random order."
+        )
+    if invalid:
+        raise ValueError(
+            "Active learning is training-only; labelable_splits cannot include "
+            f"{invalid}. Label validation separately, in random order."
+        )
+    return splits
+
+
+def build_pool_mask(frame: pd.DataFrame, labelable_splits=("train",)) -> np.ndarray:
+    """Return accepted, unlabeled training rows eligible for active ordering."""
     from .io import as_bool
 
+    _validate_labelable_splits(labelable_splits)
     accepted = as_bool(frame["accepted"]).to_numpy()
     unlabeled = frame["label"].astype(str).str.strip().eq("").to_numpy()
-    in_scope = frame["split"].astype(str).isin(labelable_splits).to_numpy()
-    mask = accepted & unlabeled & in_scope
+    train = frame["split"].astype(str).str.strip().eq("train").to_numpy()
+    mask = accepted & unlabeled & train
     assert_pool_excludes_test(frame, mask)
     return mask
 
@@ -127,20 +151,30 @@ def select_next_batch(
     frame: pd.DataFrame,
     embeddings: np.ndarray,
     batch_size: int = 20,
-    labelable_splits=("train", "val"),
+    labelable_splits=("train",),
 ) -> tuple[np.ndarray, SeedModel, np.ndarray]:
-    """Return ``(positional indices to label next, seed model, probabilities)``."""
+    """Fit on train labels and return the next train-only uncertainty batch.
+
+    Probabilities cover every input row so callers can inspect model behavior,
+    but validation and test rows are never used for fitting or queue selection.
+    """
     from .io import as_bool
 
+    _validate_labelable_splits(labelable_splits)
     accepted = as_bool(frame["accepted"]).to_numpy()
-    labeled_mask = accepted & frame["label"].astype(str).isin(["arched", "normal"]).to_numpy()
-    if labeled_mask.sum() < 2:
-        raise ValueError("at least one arched and one normal seed label are required")
+    labels = frame["label"].astype(str).str.strip()
+    labeled = labels.isin(["arched", "normal"]).to_numpy()
+    train = frame["split"].astype(str).str.strip().eq("train").to_numpy()
+    seed_mask = accepted & labeled & train
+    if seed_mask.sum() < 2:
+        raise ValueError(
+            "at least one arched and one normal accepted train seed label are required"
+        )
 
     targets = (
-        frame.loc[labeled_mask, "label"].map({"normal": 0, "arched": 1}).to_numpy(dtype=int)
+        labels.loc[seed_mask].map({"normal": 0, "arched": 1}).to_numpy(dtype=int)
     )
-    model = fit_seed_model(embeddings, labeled_mask, targets)
+    model = fit_seed_model(embeddings, seed_mask, targets)
     probabilities = model.predict_proba(embeddings)
 
     pool_mask = build_pool_mask(frame, labelable_splits=labelable_splits)

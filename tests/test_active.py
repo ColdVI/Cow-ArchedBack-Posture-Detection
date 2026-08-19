@@ -83,6 +83,40 @@ class ActiveLearningTests(unittest.TestCase):
         self.assertEqual(probabilities.shape, (len(frame),))
         self.assertIn(model.kind, {"nearest_centroid", "logistic_regression"})
 
+    def test_seed_model_uses_only_train_labels(self):
+        frame = make_frame()
+        frame.loc[[0, 1], "label"] = "arched"
+        frame.loc[[2, 3, 4], "label"] = "normal"
+        frame.loc[18:29, "label"] = ["arched", "normal"] * 6
+        embeddings = np.random.default_rng(3).normal(size=(len(frame), 10))
+
+        _batch, model, probabilities = select_next_batch(frame, embeddings, batch_size=4)
+
+        self.assertEqual(model.n_labeled, 5)
+        self.assertEqual(probabilities.shape, (len(frame),))
+
+    def test_selected_batch_is_train_only(self):
+        frame = make_frame()
+        frame.loc[[0, 1], "label"] = "arched"
+        frame.loc[[2, 3], "label"] = "normal"
+        embeddings = np.random.default_rng(4).normal(size=(len(frame), 6))
+
+        batch, _model, _probabilities = select_next_batch(
+            frame, embeddings, batch_size=len(frame)
+        )
+
+        self.assertTrue(frame.loc[batch, "split"].eq("train").all())
+
+    def test_validation_cannot_be_explicitly_added_to_pool(self):
+        frame = make_frame()
+        with self.assertRaisesRegex(ValueError, "training-only"):
+            build_pool_mask(frame, labelable_splits=("train", "val"))
+
+    def test_test_cannot_be_explicitly_added_to_pool(self):
+        frame = make_frame()
+        with self.assertRaises(TestSetLeakError):
+            build_pool_mask(frame, labelable_splits=("train", "test"))
+
 
 if __name__ == "__main__":
     unittest.main()
