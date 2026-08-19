@@ -28,10 +28,15 @@ HEADLESS = {
         "PREVIEW_ONLY": "False",
         "SAVE_OUTPUTS": "True",
         "MODELS": '["geometry"]',
+        "EVALUATION_GROUP_COLUMN": '"passage_id"',
     },
 }
-COMPILE_ONLY = ("00_dataset_browser.ipynb", "01_detection_segmentation_inspector.ipynb",
-                "03_labeling.ipynb")
+COMPILE_ONLY = (
+    "00_single_image_walkthrough.ipynb",
+    "00_dataset_browser.ipynb",
+    "01_detection_segmentation_inspector.ipynb",
+    "03_labeling.ipynb",
+)
 
 
 def strip_magics(source: str) -> str:

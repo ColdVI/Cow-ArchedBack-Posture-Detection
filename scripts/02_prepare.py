@@ -80,7 +80,7 @@ def main() -> None:
             path = args.sources.resolve().parent / path
         if not path.exists():
             raise FileNotFoundError(f"Source path not found: {path}")
-        video_id = source_id
+        video_id = str(source.get("video_id", "")).strip() or source_id
         last_kept_hash: int | None = None
         kept_count = 0
 
@@ -90,6 +90,11 @@ def main() -> None:
             record = blank_record(source_id, video_id, frame_idx, original_name)
             record["source_score"] = source.get("source_score", "")
             record["license"] = source.get("license", "")
+            for column in (
+                "license_status", "license_name", "license_url", "farm_id", "cow_id",
+                "passage_id", "camera_id",
+            ):
+                record[column] = source.get(column, "")
 
             outcome = process_frame(
                 frame,

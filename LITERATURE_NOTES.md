@@ -85,22 +85,34 @@ Kaynak: https://arxiv.org/abs/2401.05202
 
 Kaynak: https://doi.org/10.1038/s41598-023-31297-1
 
-## Dataset/transfer kaynakları
+## Dataset/transfer kaynakları ve rolleri
 
-- AP-10K: 10,015 görüntü ve 54 tür; genel animal pose pretraining/transfer için
-  kullanılabilir, özel dense cow spine annotation sağlamaz.
-  https://github.com/AlexTheBad/AP-10K
-- Animal-Pose: cow dahil beş ana hayvan sınıfında bbox ve keypoint annotation.
-  https://github.com/noahcao/animal-pose-dataset
-- Livestock Keypoint Detection: cattle/horse/sheep ve 18 anatomik keypoint.
+Bu kaynaklar birbirinin yerine kullanılamaz. Her birinin PoC içindeki olası rolü
+ve sağlayamayacağı supervision aşağıda ayrı yazılmıştır.
+
+| Kaynak | Bu projedeki olası rol | Sınır / ground-truth durumu |
+|---|---|---|
+| AP-10K | Genel animal-pose pretraining veya transfer başlangıç noktası | Özel dorsal nokta ya da `arched` posture etiketi yoktur. Hedef posture dataseti değildir. |
+| Livestock Keypoint Detection | Cattle pose transferi ve genel anatomik keypoint başlangıç noktası | Özel `arched` etiketi yoktur; proje dorsal protokolünün ground truth'u değildir. |
+| Animal-Pose | Genel cow bbox/keypoint transferi | Lisans ve yeniden kullanım açıklığı kaynak bazında doğrulanmadan kullanılmamalıdır; özel `arched` etiketi sağlamaz. |
+| CattleLameness | İnternet kaynaklı 50 video / 42 cow içeren, lameness araştırmasına yönelik aday analiz kaynağı | Title/description temelli etiketler **weak label** niteliğindedir; frame-level arched-back posture ground truth değildir. |
+| CowScreeningDB | Bacak sensörlerinden gelen CSV/IMU zaman serileriyle sensör tabanlı lameness araştırması | RGB video benchmark değildir ve RGB arched-back posture modelini eğitmek için kullanılmamalıdır. |
+| Kullanıcı/şirket/farm-owned lateral görüntüler | İnsan tarafından tanımlanan hedef posture datasetinin ana kaynağı | Provenance, izin/lisans, hayvan kimliği ve grup bilgileri kaydedilmeli; `arched/normal` etiketleri kör posture annotation ile üretilmelidir. |
+| YouTube / Roboflow | Yalnızca aday görüntü/video havuzu | Her kaynak için kullanım koşulu ve lisans ayrı ayrı doğrulanıp `approved` olmadan indirilemez veya dataset'e alınamaz. Platformda bulunması kullanım izni anlamına gelmez. |
+
+Bağlantılar:
+
+- AP-10K: https://github.com/AlexTheBad/AP-10K
+- Livestock Keypoint Detection:
   https://github.com/yww0411/Livestock-keypoint-detection
-- CowScreeningDB: lameness araştırması için yayınlanmış cattle video benchmark
-  kaynağı; kullanım koşulları indirmeden önce ayrıca doğrulanmalıdır.
+- Animal-Pose: https://github.com/noahcao/animal-pose-dataset
+- CowScreeningDB:
   https://github.com/Shahid-Ismail/CowScreeningDB-A-public-database-for-lameness-detection
 
-Bu genel pose datasetleri özel `arched` etiketi veya beş dense dorsal nokta
-sunmayabilir. Bu nedenle posture label ve dorsal keypoint alt kümesi proje
-tarafından üretilir.
+Sonuç olarak genel pose datasetleri yalnız transfer/pretraining rolündedir;
+sensör verisi, weak label ve posture ground truth da ayrı kavramlardır. Hedef
+`arched/normal` posture etiketi ile projeye özel dorsal annotation, izinli lateral
+görüntüler üzerinde proje tarafından üretilir.
 
 ## Raporda güvenle kullanılabilecek cümleler
 
@@ -121,4 +133,3 @@ tarafından üretilir.
 - “İki uçtan yüzde 20 kırpmak torakolomber bölgeyi garanti eder.”
 - “Poursaberi yöntemini birebir replike ettik.”
 - “Bu sonuçlar sahada genellenebilirliği kanıtlar.”
-

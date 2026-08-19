@@ -5,10 +5,15 @@ import argparse
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from cowarch.sources import normalize_and_require_approved_sources
 
 
 VALID_KINDS = {"video", "image", "image_dir", "youtube", "direct"}
@@ -83,12 +88,8 @@ def main() -> None:
     args = parser.parse_args()
 
     frame = pd.read_csv(args.sources, keep_default_na=False, comment="#")
-    required = {"source_id", "kind", "url", "local_path", "license"}
-    missing = sorted(required - set(frame.columns))
-    if missing:
-        raise ValueError(f"sources CSV is missing columns: {missing}")
-    if frame.empty:
-        raise ValueError("sources CSV contains no active rows")
+    # Validate every row before creating directories or touching the network.
+    frame = normalize_and_require_approved_sources(frame)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     resolved_rows = []
@@ -97,10 +98,6 @@ def main() -> None:
         kind = str(row["kind"]).strip().lower()
         if kind not in VALID_KINDS:
             raise ValueError(f"Unsupported kind {kind!r} for {source_id}")
-        license_value = str(row["license"]).strip()
-        if not license_value:
-            raise ValueError(f"license must be documented for {source_id}")
-
         if kind in {"video", "image", "image_dir"}:
             resolved = resolve_local_path(str(row["local_path"]), args.sources)
             if not resolved.exists():

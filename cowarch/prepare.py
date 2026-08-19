@@ -87,8 +87,38 @@ def blank_record(source_id: str, video_id: str, frame_idx: int, original_name: s
         "split": "",
         "label": "",
         "keypoints_json": "",
+        "anchors_json": "",
         "reviewed_by": "",
+        "posture_reviewed_by": "",
+        "geometry_reviewed_by": "",
+        "annotation_pass": "",
+        "farm_id": "",
+        "cow_id": "",
+        "passage_id": "",
+        "camera_id": "",
     }
+
+
+def detect_frame_cows(
+    frame: np.ndarray,
+    *,
+    detector,
+    cow_class: int | None,
+    confidence: float,
+) -> list:
+    """Return inspectable cow candidates without accepting or rejecting a frame."""
+    frame_height, frame_width = frame.shape[:2]
+    if detector is None:
+        return [
+            (
+                np.array([0, 0, frame_width, frame_height], dtype=float),
+                1.0,
+                None,
+            )
+        ]
+    if cow_class is None:
+        raise ValueError("cow_class is required when a detector is enabled")
+    return predict_cows(detector, cow_class, frame, confidence)
 
 
 def process_frame(
@@ -99,6 +129,7 @@ def process_frame(
     cow_class: int | None,
     config: PrepareConfig,
     last_hash: int | None = None,
+    detection_index: int | None = None,
 ) -> FrameOutcome:
     """Run detection, quality filters and silhouette geometry for one frame.
 
@@ -109,18 +140,32 @@ def process_frame(
     frame_height, frame_width = frame.shape[:2]
     outcome = FrameOutcome(record=record, frame=frame)
 
-    if detector is None:
-        detections = [(np.array([0, 0, frame_width, frame_height], dtype=float), 1.0, None)]
-    else:
-        detections = predict_cows(detector, cow_class, frame, config.confidence)
+    detections = detect_frame_cows(
+        frame,
+        detector=detector,
+        cow_class=cow_class,
+        confidence=config.confidence,
+    )
     outcome.detections = detections
     record["cow_count"] = len(detections)
 
-    if len(detections) != 1:
+    if detection_index is None and len(detections) != 1:
         record["reject_reason"] = "no_cow" if not detections else "multiple_cows"
         return outcome
 
-    box, score, raw_mask = detections[0]
+    if detection_index is not None:
+        if isinstance(detection_index, bool) or not isinstance(detection_index, (int, np.integer)):
+            raise ValueError("detection_index must be an integer or None")
+        if not 0 <= int(detection_index) < len(detections):
+            raise IndexError(
+                f"detection_index {detection_index} is out of range for {len(detections)} cows"
+            )
+        selected_index = int(detection_index)
+    else:
+        selected_index = 0
+
+    record["selected_detection_index"] = selected_index
+    box, score, raw_mask = detections[selected_index]
     outcome.box = np.asarray(box, dtype=float)
     x1, y1, x2, y2 = [float(value) for value in box]
     bbox_width = max(0.0, x2 - x1)

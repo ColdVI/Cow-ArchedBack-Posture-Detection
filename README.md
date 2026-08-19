@@ -37,13 +37,48 @@ pip install -e .
 Ultralytics ve Torch ağırlıkları ilk kullanımda indirilebilir. İnternetsiz
 çalışacaksan checkpoint'leri önceden indirip komutlarda yerel yollarını ver.
 
+## Tek görüntüyle başla
+
+İlk önerilen giriş noktası `notebooks/00_single_image_walkthrough.ipynb`'dir.
+Bir görüntüyü şuraya koy:
+
+```text
+data/inbox/one_cow.jpg
+```
+
+Notebook varsayılan olarak `yolo11n-seg.pt` ile yalnız bellekte önizleme yapar;
+`sources.csv`, manifest, split veya hazırlanmış dataset istemez. Birden fazla cow
+bulursa ekrandaki detection indekslerinden birini sen seçersin. Elinde hazır crop
+varsa `MODEL_NAME = "none"` kullanabilirsin. Maske yoksa raw/bbox/crop panelleri
+yine gösterilir, yalnız contour geometrisi atlanır.
+
+Preview modu eksik checkpoint'i otomatik indirmez: `yolo11n-seg.pt` dosyasını
+önceden proje köküne koy, `MODEL_NAME` için başka bir yerel path ver veya hazır
+crop ile `"none"` kullan. Böylece varsayılan koşum model ağırlığı da yazmaz.
+
+Hiçbir çıktı varsayılan koşumda yazılmaz. Yazma ancak iki bayrak birlikte
+değiştirilirse mümkündür:
+
+```python
+PREVIEW_ONLY = False
+SAVE_OUTPUTS = True
+```
+
+Notebook ham görüntüden selected crop ve maskeye, kırpılmamış topline'dan açıkça
+`experimental silhouette baseline` diye işaretlenen `%20 trim` ölçümüne, son
+olarak tıklanan withers/sacrum anchor'ları arasındaki dense contour ve signed
+sagitta'ya kadar sekiz inspection paneli gösterir. Sagitta bir feature'dır;
+hiçbir aşamada ground-truth posture etiketi değildir.
+
 ## Çalışma biçimi: notebook-first
 
 Kontrol notebook'lardadır. `scripts/` altındaki CLI'lar **backend**'dir: aynı
 fonksiyonları toplu işlem için çağırırlar, notebook'ta gördüğün kod yolunun
 birebir aynısını koştururlar (`cowarch/prepare.py:process_frame`).
 
-Kural: hiçbir aşama önce sonucu göstermeden yazmaz. Her notebook üç bayrakla açılır.
+Çok örnekli inspection ve batch notebook'ları sonucu göstermeden yazmaz; bu
+notebook'lar üç bayrakla açılır (`00_single_image_walkthrough` tek örnek olduğu
+için `MAX_SAMPLES` kullanmaz):
 
 ```python
 PREVIEW_ONLY = True     # sadece bak, hiçbir şey yazma
@@ -52,7 +87,9 @@ SAVE_OUTPUTS = False    # yazmak için bu da True olmalı
 ```
 
 Görselleri kontrol ettikten sonra `PREVIEW_ONLY = False` ve `SAVE_OUTPUTS = True`
-yapıp bütün veri seti üzerinde koşturursun.
+yapıp bütün veri seti üzerinde koşturursun. `03_labeling` bunun bilinçli
+istisnasıdır: bir insan posture veya geometry kararını kaydettiği anda manifesti
+atomik olarak yazar; önizleme/batch commit notebook'u değildir.
 
 ```bash
 source .venv/bin/activate
@@ -61,11 +98,12 @@ jupyter lab notebooks/
 
 | Notebook | Ekranda ne görürsün | Neye karar verirsin |
 |---|---|---|
+| `00_single_image_walkthrough` | Tek görüntüde raw, indeksli bbox, crop, mask, topline ve anchored geometri | Detector/mask/geometri bu görüntüde anlamlı mı |
 | `00_dataset_browser` | Kaynak tablosu, lisans, thumbnail grid | Hangi kaynak kullanılacak |
 | `01_detection_segmentation_inspector` | Ham kare, bbox, crop, maske overlay, reject sebepleri | Eşikler doğru mu, maske sırtı kapsıyor mu |
 | `02_back_geometry_inspector` | Topline, chord, sagitta, keypoint geometrisi | Kamburluk neye göre ölçülüyor |
-| `03_labeling` | Crop + sınıf butonları + 5 dorsal nokta | arched / normal / uncertain / invalid |
-| `04_training_evaluation` | Split dengesi, PR/ROC, hata örnekleri, occlusion | Model gerçekten sırta mı bakıyor |
+| `03_labeling` | Pass A'da yalnız crop+sınıf; Pass B'de ayrı dorsal annotation | Önce posture, sonra bağımsız geometri |
+| `04_training_evaluation` | Frame ve group/passage metrikleri, cluster bootstrap, hata örnekleri | Model bağımsız gruplarda ne yapıyor |
 
 ### Altı panel
 
@@ -84,15 +122,21 @@ değildir. `sagitta > 0.07 → arched` diyerek veri seti kurup sonra sagitta ile
 eğitmek, modelin kendi eşiğine fit olması demektir. Etiketler `03_labeling`'de
 insandan gelir.
 
-### Etiketleme ve active learning
+### İki geçişli etiketleme ve active learning
 
-`03_labeling` içindeki `PostureLabeler` şu kuralları kodda zorlar:
+`03_labeling` iki ayrı annotation geçişi kullanır:
 
-- Split etiketlemeden önce kilitlenmiş olmalı.
-- Test ve validation **kör** etiketlenir: `order="priority"` train dışında hata verir.
-- Model sırayı değiştirebilir, etiketi **yalnız insan** yazar.
-- Keypoint modunda beş nokta girilmeden `arched`/`normal` kabul edilmez.
-- Manifest her karardan sonra atomik yazılır, `reviewed_by` dolar.
+- **Pass A — posture:** yalnız görüntü ile `arched / normal / uncertain / invalid`
+  kararı. Keypoint, sagitta, probability ve `source_score` gösterilmez.
+- **Pass B — geometry:** yalnız Pass A'sı tamamlanmış `arched/normal` satırlarda
+  beş dorsal keypoint veya withers/sacrum anchor'ları. Posture label yeniden
+  yazılmaz; geometri skoru ancak noktalar kaydedildikten sonra görülebilir.
+
+Test ve validation posture sırası kör ve random kalır. Active/priority sıralama
+yalnız train'de kullanılabilir. Manifest `posture_reviewed_by`,
+`geometry_reviewed_by` ve `annotation_pass` alanlarını taşır. Eski
+`reviewed_by` okunmaya devam eder ve kayıpsız biçimde yeni reviewer alanlarına
+yorumlanır; eski kolon silinmez.
 
 Active learning döngüsü:
 
@@ -101,10 +145,13 @@ Active learning döngüsü:
                      →  modelin en kararsız olduğu 20 kare  →  sen etiketle  →  tekrar
 ```
 
-Sekiz etiketin altında cosine nearest-centroid, üstünde logistic regression
-kullanılır. `cowarch/active.py:build_pool_mask` test satırlarının havuza girmesi
-durumunda `TestSetLeakError` fırlatır — test kareleri active learning'e hiç
-girmez, ayrıca ve rastgele sırada etiketlenir.
+Her sınıfta sekiz train etiketi oluşana kadar cosine nearest-centroid, bu eşiğin
+ardından logistic regression kullanılır. Seed model yalnız
+accepted+labeled+`split=="train"` satırlara fit
+edilir; queue yalnız accepted+unlabeled train satırlarından seçilir. Probability
+tüm satırlar için hesaplanabilir fakat validation/test fitting veya seçimde
+kullanılmaz. `labelable_splits` varsayılanı yalnız `("train",)`'dir; validation
+veya test'i active-learning pool'una açıkça katma girişimi hata üretir.
 
 Roboflow veya Label Studio bu ölçekte gerekmez. İkinci bir etiketçi/veteriner
 sürece katılırsa, dataset 1.000+ görüntüye çıkarsa veya annotation geçmişi/reviewer
@@ -121,7 +168,8 @@ python scripts/02_prepare.py  --sources data/sources_selected.csv \
                               --output-dir data/prepared --manifest data/manifest.csv \
                               --target-fps 1 --model yolo11n-seg.pt
 python scripts/03_split.py    --manifest data/manifest.csv --group-column video_id
-python scripts/04_label.py    --manifest data/manifest.csv --split test --order random
+python scripts/04_label.py    --manifest data/manifest.csv --split test --order random \
+                              --reviewer posture-reviewer-01
 python scripts/05_train.py    --manifest data/manifest.csv --output-dir outputs/run01 \
                               --models geometry embedding fusion
 python scripts/06_report.py   --run-dir outputs/run01 --manifest data/manifest.csv
@@ -129,8 +177,24 @@ python scripts/07_predict.py  --model outputs/run01/embedding.joblib \
                               --manifest data/new_manifest.csv --output outputs/new_predictions.csv
 ```
 
-`04_label.py`, notebook arayüzünün cv2 tabanlı terminal karşılığıdır; aynı dört
-sınıfı ve beş keypoint'i toplar.
+`04_label.py` yalnız image-only **Pass A posture** için cv2 tabanlı terminal
+alternatifidir. Combined `--keypoints` ve geometriye göre `auto-sagitta` sırası
+açık hata ile reddedilir. **Pass B geometry** için notebook 03 içindeki
+`DorsalGeometryLabeler` kullanılır.
+
+### Veri kaynağı ve lisans kapısı
+
+`sources.example.csv` yeni provenance şemasını gösterir: kaynak/lisans alanlarına
+ek olarak farm, cow, video, passage ve camera kimlikleri tutulur. Geçerli
+`license_status` değerleri `approved`, `restricted`, `unresolved`'dır. Yalnız
+`approved` satırlar `scripts/01_collect.py` tarafından resolve veya download
+edilir; diğer durumlar herhangi bir indirme başlamadan açık hata verir.
+
+Eski `license` kolonu okunabilir, fakat boş, `check-before-use`, `unknown` ve
+`unresolved` değerleri asla onay sayılmaz. Collector yalnız elle verilmiş, kaynak
+bazında onaylanmış URL'leri işler; otomatik YouTube araması veya query-based
+indirme yapmaz. `data/` ve `outputs/` gitignore altındadır; örnek inek görüntüsü
+repoya eklenmez.
 
 **Az grupta dejenere split riski:** Split etiketlemeden önce yapıldığı için
 gruplara göre bölme, bir split'e tek sınıf düşürebilir; `05_train.py` bu durumda
@@ -144,6 +208,12 @@ sağlamaktır. Bu senaryo `00_smoke_test.py` ile birebir üretilebilir.
 - **A — geometry:** beş dorsal keypoint'ten açıklanabilir geometri + Logistic Regression
 - **B — embedding:** dondurulmuş ImageNet ResNet18 (512-D) + Logistic Regression
 - **C — fusion:** ikisinin birleşimi
+
+Keypoint geometrisi upward arch ile downward sag'i signed özelliklerle ayırır;
+işaret yatay flip'te değişmez ve normalize değerler resize'a invarianttır.
+Withers/sacrum anchor'ları varsa `anchored_topline_features` yalnız bu anatomik
+aralıktaki dense mask contour'unu ölçer. Sabit `%20 trim` `auto_*` özellikleri
+geriye uyumluluk için korunur fakat deneysel baseline'dır.
 
 `C` hiperparametresi validation PR-AUC ile, karar eşiği validation F1 ile seçilir.
 Test yalnız final değerlendirmede kullanılır.
@@ -167,6 +237,19 @@ Bu sayılar klinik performans garantisi değil, kısa PoC'nin çalışabilmesi i
 pratik hedeflerdir.
 
 ## Testler
+
+### Grup seviyesinde değerlendirme
+
+Frame'ler bağımsız örnekler değildir. Rapor frame metriklerini korurken ayrıca
+seçilebilir `video_id`, `cow_id` veya `passage_id` üzerinden mean probability ile
+group-level metrik üretir. Aynı grupta çelişkili ground truth varsa sessizce
+çoğunluk oyu kullanmaz, hata verir. Confidence interval frame değil grup resample
+eden cluster bootstrap ile hesaplanır:
+
+```bash
+python scripts/06_report.py --run-dir outputs/run01 --manifest data/manifest.csv \
+                            --group-column passage_id
+```
 
 ### Sentetik uçtan uca smoke test
 
@@ -202,9 +285,21 @@ Geometri, grup sızıntısı, kare hazırlama ve active-learning guard'ları ağ
 bağımlılıkları olmadan çalışır:
 
 ```bash
+pip install -r requirements-test.txt
 python -m unittest discover -s tests -v
 python -m compileall cowarch scripts
+python scripts/00_check_notebooks.py --compile-only
 ```
+
+`.github/workflows/tests.yml` bu hafif koşumları Python 3.12 üzerinde çalıştırır;
+Torch, Ultralytics, model ağırlığı, internet dataseti veya GPU gerekmez.
+
+## Protokol dokümanları
+
+- `docs/ANNOTATION_GUIDE.md`: posture ve geometry annotation kuralları
+- `docs/DATASET_CARD_TEMPLATE.md`: provenance, lisans, split, bağımsızlık ve bias şablonu
+- `docs/FUTURE_SYSTEM.md`: yalnız future phase; mevcut PoC'de doğrulanmamış temporal/identity/alert taslağı
+- `LITERATURE_NOTES.md`: literatür iddia sınırları ve dataset rollerinin ayrımı
 
 ## Referanslar
 

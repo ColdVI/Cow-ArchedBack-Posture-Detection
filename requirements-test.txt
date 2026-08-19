@@ -1,0 +1,6 @@
+# Lightweight unit/compile checks; intentionally excludes Torch and Ultralytics.
+numpy>=2.0
+pandas>=2.2
+scikit-learn>=1.5
+matplotlib>=3.8
+opencv-python-headless>=4.10
