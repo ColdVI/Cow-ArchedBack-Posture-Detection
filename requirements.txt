@@ -1,0 +1,27 @@
+# core
+numpy>=2.0
+pandas>=2.2
+scikit-learn>=1.5
+joblib>=1.4
+Pillow>=10.0
+PyYAML>=6.0
+matplotlib>=3.8
+seaborn>=0.13
+opencv-python>=4.10
+
+# detection / embeddings
+ultralytics>=8.3
+torch>=2.5
+torchvision>=0.20
+
+# source collection
+requests>=2.32
+yt-dlp>=2025.1.0
+
+# notebook-first inspection and labeling
+jupyterlab>=4.2
+ipykernel>=6.29
+ipywidgets>=8.1
+ipympl>=0.9          # click events for dorsal keypoint capture
+nbclient>=0.10        # headless notebook execution check
+nbformat>=5.10

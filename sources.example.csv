@@ -1,0 +1,6 @@
+source_id,kind,url,local_path,license,source_score,notes
+local_video_01,video,,data/raw/example.mp4,owner-approved,,Side-view example video
+local_images_01,image_dir,,data/raw/side_view_images,owner-approved,,Directory of already downloaded images
+# youtube_01,youtube,https://www.youtube.com/watch?v=REPLACE_ME,,check-before-use,2,Auxiliary source score only
+# direct_01,direct,https://example.org/cow_video.mp4,,check-before-use,,Direct downloadable file
+
