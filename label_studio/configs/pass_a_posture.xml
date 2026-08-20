@@ -1,0 +1,13 @@
+<View>
+  <Header value="Pass A — Kör duruş değerlendirmesi" />
+  <View style="padding: 10px; background: #fff8e6; border-radius: 6px; margin-bottom: 12px;">
+    <Text name="instructions" value="Yalnız görüntüde gördüğünüz sırt duruşunu değerlendirin. Kaynak kategorisi, otomatik geometri ve model skoru bu aşamada kullanılmaz." />
+  </View>
+  <Image name="image" value="$image" zoom="true" />
+  <Choices name="posture" toName="image" choice="single" required="true" showInline="true">
+    <Choice value="arched" hotkey="1" />
+    <Choice value="normal" hotkey="2" />
+    <Choice value="uncertain" hotkey="3" />
+    <Choice value="invalid" hotkey="4" />
+  </Choices>
+</View>

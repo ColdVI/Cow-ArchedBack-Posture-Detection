@@ -1,0 +1,18 @@
+name: cow-arch-label-studio
+
+services:
+  label-studio:
+    image: heartexlabs/label-studio:1.23.0
+    container_name: cow-arch-label-studio
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED: "true"
+      LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT: /label-studio/files
+    volumes:
+      - label-studio-data:/label-studio/data
+      - ../data:/label-studio/files:ro
+
+volumes:
+  label-studio-data:
