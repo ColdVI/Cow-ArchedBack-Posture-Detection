@@ -127,3 +127,138 @@ class PrepareTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MultiCowTests(unittest.TestCase):
+    def test_no_detections_returns_single_no_cow_outcome(self):
+        class NoDetector:
+            names = {0: "cow"}
+
+        def factory(index):
+            return blank_record("src", "vid", index, "a.png")
+
+        from cowarch.prepare import process_frame_all_cows
+
+        frame = blank_frame()
+
+        import unittest.mock as mock
+        with mock.patch("cowarch.prepare.detect_frame_cows", return_value=[]):
+            outcomes = process_frame_all_cows(
+                frame, factory, detector=object(), cow_class=0, config=PrepareConfig()
+            )
+        self.assertEqual(len(outcomes), 1)
+        self.assertFalse(outcomes[0].accepted)
+        self.assertEqual(outcomes[0].reject_reason, "no_cow")
+
+    def test_each_detection_becomes_its_own_candidate(self):
+        import unittest.mock as mock
+
+        from cowarch.prepare import process_frame_all_cows
+
+        # Distinct pixel content per region: identical crops would dhash to the
+        # same value and the second cow would be dropped as a near-duplicate,
+        # which is a real (documented) limitation, not what this test checks.
+        frame = np.zeros((200, 600, 3), dtype=np.uint8)
+        frame[40:160, 0:250] = 60
+        frame[40:160, 300:560] = 200
+        two_cows = [
+            (np.array([0.0, 40.0, 250.0, 160.0]), 0.9, None),
+            (np.array([300.0, 40.0, 560.0, 160.0]), 0.85, None),
+        ]
+
+        def factory(index):
+            return blank_record("src", "vid", index, "a.png")
+
+        with mock.patch("cowarch.prepare.detect_frame_cows", return_value=two_cows):
+            outcomes = process_frame_all_cows(
+                frame, factory, detector=object(), cow_class=0, config=PrepareConfig()
+            )
+        self.assertEqual(len(outcomes), 2)
+        self.assertTrue(all(o.accepted for o in outcomes))
+        self.assertEqual(outcomes[0].record["cow_count"], 2)
+        self.assertEqual(outcomes[0].record["selected_detection_index"], 0)
+        self.assertEqual(outcomes[1].record["selected_detection_index"], 1)
+        # distinct crops, not the same region duplicated
+        self.assertFalse(np.array_equal(outcomes[0].crop.shape, outcomes[1].crop.shape) and
+                          np.array_equal(outcomes[0].box, outcomes[1].box))
+
+    def test_detector_runs_once_regardless_of_cow_count(self):
+        import unittest.mock as mock
+
+        from cowarch.prepare import process_frame_all_cows
+
+        frame = np.zeros((200, 600, 3), dtype=np.uint8)
+        three_cows = [
+            (np.array([0.0, 40.0, 150.0, 160.0]), 0.9, None),
+            (np.array([200.0, 40.0, 350.0, 160.0]), 0.9, None),
+            (np.array([400.0, 40.0, 550.0, 160.0]), 0.9, None),
+        ]
+
+        def factory(index):
+            return blank_record("src", "vid", index, "a.png")
+
+        with mock.patch(
+            "cowarch.prepare.detect_frame_cows", return_value=three_cows
+        ) as mocked:
+            process_frame_all_cows(
+                frame, factory, detector=object(), cow_class=0, config=PrepareConfig()
+            )
+        self.assertEqual(mocked.call_count, 1)
+
+
+class OverlapSuppressionTests(unittest.TestCase):
+    def test_iou_of_identical_boxes_is_one(self):
+        from cowarch.prepare import box_iou
+        box = np.array([10.0, 10.0, 110.0, 110.0])
+        self.assertAlmostEqual(box_iou(box, box), 1.0)
+
+    def test_iou_of_disjoint_boxes_is_zero(self):
+        from cowarch.prepare import box_iou
+        a = np.array([0.0, 0.0, 10.0, 10.0])
+        b = np.array([100.0, 100.0, 110.0, 110.0])
+        self.assertEqual(box_iou(a, b), 0.0)
+
+    def test_heavily_overlapping_fragment_is_suppressed(self):
+        import unittest.mock as mock
+        from cowarch.prepare import process_frame_all_cows
+
+        frame = np.zeros((200, 600, 3), dtype=np.uint8)
+        frame[40:160, 0:300] = 120
+        # second box is almost the same region as the first: a rail-fragmented
+        # detection of the same physical animal, not a second cow.
+        fragmented = [
+            (np.array([0.0, 40.0, 300.0, 160.0]), 0.9, None),
+            (np.array([10.0, 42.0, 295.0, 158.0]), 0.8, None),
+        ]
+
+        def factory(index):
+            return blank_record("src", "vid", index, "a.png")
+
+        with mock.patch("cowarch.prepare.detect_frame_cows", return_value=fragmented):
+            outcomes = process_frame_all_cows(
+                frame, factory, detector=object(), cow_class=0, config=PrepareConfig()
+            )
+        self.assertTrue(outcomes[0].accepted)
+        self.assertFalse(outcomes[1].accepted)
+        self.assertEqual(outcomes[1].reject_reason, "overlaps_accepted")
+
+    def test_well_separated_cows_both_survive_overlap_check(self):
+        import unittest.mock as mock
+        from cowarch.prepare import process_frame_all_cows
+
+        frame = np.zeros((200, 600, 3), dtype=np.uint8)
+        frame[40:160, 0:250] = 60
+        frame[40:160, 300:560] = 200
+        two_cows = [
+            (np.array([0.0, 40.0, 250.0, 160.0]), 0.9, None),
+            (np.array([300.0, 40.0, 560.0, 160.0]), 0.85, None),
+        ]
+
+        def factory(index):
+            return blank_record("src", "vid", index, "a.png")
+
+        with mock.patch("cowarch.prepare.detect_frame_cows", return_value=two_cows):
+            outcomes = process_frame_all_cows(
+                frame, factory, detector=object(), cow_class=0, config=PrepareConfig()
+            )
+        self.assertTrue(all(o.accepted for o in outcomes))

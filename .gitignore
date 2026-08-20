@@ -7,3 +7,10 @@ outputs/
 .DS_Store
 
 *.egg-info/
+*.pt
+
+# Local Label Studio runtime state and generated task/result exports.
+label_studio/state/
+label_studio/tasks/*.json
+label_studio/exports/*.json
+label_studio/.env

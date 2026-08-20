@@ -95,7 +95,9 @@ ve sağlayamayacağı supervision aşağıda ayrı yazılmıştır.
 | AP-10K | Genel animal-pose pretraining veya transfer başlangıç noktası | Özel dorsal nokta ya da `arched` posture etiketi yoktur. Hedef posture dataseti değildir. |
 | Livestock Keypoint Detection | Cattle pose transferi ve genel anatomik keypoint başlangıç noktası | Özel `arched` etiketi yoktur; proje dorsal protokolünün ground truth'u değildir. |
 | Animal-Pose | Genel cow bbox/keypoint transferi | Lisans ve yeniden kullanım açıklığı kaynak bazında doğrulanmadan kullanılmamalıdır; özel `arched` etiketi sağlamaz. |
-| CattleLameness | İnternet kaynaklı 50 video / 42 cow içeren, lameness araştırmasına yönelik aday analiz kaynağı | Title/description temelli etiketler **weak label** niteliğindedir; frame-level arched-back posture ground truth değildir. |
+| CattleLameness | İnternet kaynaklı 50 video / 42 cow içeren, lameness araştırmasına yönelik aday analiz kaynağı | Title/description temelli etiketler **weak label** niteliğindedir; frame-level arched-back posture ground truth değildir. Repo'da LICENSE dosyası yok; `check-before-use`. |
+| Cattle Side/Back Views (Mendeley h2s22wr5py) | 72 sığırın yan+arka görünüşü; explicit side-view kaynağı, geometri/keypoint denemesi için elverişli | CC BY 4.0. Posture etiketi yok — `arched/normal/uncertain/invalid` projede üretilir. Vücut ölçümü (withers height vb.) amaçlı toplanmıştır, lameness/posture çalışması değildir. **Dataset iki ayrı klasöre bölünmüş** (`folder_id` 55b368b1=yan, c54ab6a2=arka, dosya numarası ineği eşler); arka görünüş dorsal kavis göstermediği için `scripts/08_build_external_sources.py` yalnız yan klasörü kullanır ve her ineği ayrı `source_id`/`video_id` yapar — aksi halde 72 inek split'te tek gruba düşer. |
+| Cattle Images for Lameness (Mendeley f4j83j77ng) | 277 Wagyu/Angus ham kamera karesi (Folder 1); yardımcı normal/pozitif aday havuzu | CC BY 4.0. İnek kırpılmamış, tam kare — side-view verimi `02_prepare.py` detektörüne bağlı. Posture etiketi yok. |
 | CowScreeningDB | Bacak sensörlerinden gelen CSV/IMU zaman serileriyle sensör tabanlı lameness araştırması | RGB video benchmark değildir ve RGB arched-back posture modelini eğitmek için kullanılmamalıdır. |
 | Kullanıcı/şirket/farm-owned lateral görüntüler | İnsan tarafından tanımlanan hedef posture datasetinin ana kaynağı | Provenance, izin/lisans, hayvan kimliği ve grup bilgileri kaydedilmeli; `arched/normal` etiketleri kör posture annotation ile üretilmelidir. |
 | YouTube / Roboflow | Yalnızca aday görüntü/video havuzu | Her kaynak için kullanım koşulu ve lisans ayrı ayrı doğrulanıp `approved` olmadan indirilemez veya dataset'e alınamaz. Platformda bulunması kullanım izni anlamına gelmez. |
@@ -108,6 +110,28 @@ Bağlantılar:
 - Animal-Pose: https://github.com/noahcao/animal-pose-dataset
 - CowScreeningDB:
   https://github.com/Shahid-Ismail/CowScreeningDB-A-public-database-for-lameness-detection
+- CattleLameness: https://github.com/fahimsohan/CattleLameness
+- Cattle Side/Back Views: https://doi.org/10.17632/h2s22wr5py.3
+- Cattle Images for Lameness: https://doi.org/10.17632/f4j83j77ng.1
+
+### İndirilmedi / erişilemedi
+
+- **SideCow-VSS** (https://www.mdpi.com/2306-7381/12/11/1104): Bu projenin hedef
+  kurulumuna (sağım yolu yan duvarı, 3m yükseklik) en yakın kaynak, ama veri API
+  ile indirilemiyor — MDPI sayfası bot erişimine kapalı (Akamai "Access Denied"),
+  data availability bölümünde yazarlardan talep gerekiyor. Manuel iletişim
+  gerektiren tek kaynak budur.
+- **CBVD-5** (Kaggle, ~10.8 GB) ve **Cows2021** (data.bris.ac.uk, ~18.9 GB):
+  API ile indirilebilir durumdalar (Kaggle credentials mevcut, doğrudan zip
+  linki çalışıyor) ama planda ikincil öncelikli (kamera dayanıklılığı / ikinci
+  aşama) oldukları ve ilk 300–500 görüntü hedefi diğer dört kaynakla zaten
+  karşılanabildiği için bilinçli olarak ertelendi. Disk alanı hazır olduğunda
+  tek komutla indirilebilir.
+- **Livestock Keypoint Detection cattle alt kümesi** indirildi (888 görüntü,
+  `data/external/Livestock-keypoint-detection/data_process/cattle/{A,B,C}`)
+  ama `data/sources.csv`'ye bilerek eklenmedi: 18 noktalı keypoint şeması bu
+  projenin 5 noktalı dorsal protokolüyle uyuşmuyor ve görüntüler karışık
+  açılardan, önceden kırpılmış geliyor. Rolü yalnız pose-pretraining'dir.
 
 Sonuç olarak genel pose datasetleri yalnız transfer/pretraining rolündedir;
 sensör verisi, weak label ve posture ground truth da ayrı kavramlardır. Hedef

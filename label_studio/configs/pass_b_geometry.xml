@@ -1,0 +1,14 @@
+<View>
+  <Header value="Pass B — Beş dorsal anatomik nokta" />
+  <View style="padding: 10px; background: #eef6ff; border-radius: 6px; margin-bottom: 12px;">
+    <Text name="instructions" value="Her anatomik etiketi tam bir kez yerleştirin. Noktalar: withers → thoracic → thoracolumbar → lumbar → sacrum. Önceki posture kararı bu aşamada gösterilmez." />
+  </View>
+  <Image name="image" value="$image" zoom="true" />
+  <KeyPointLabels name="dorsal_keypoints" toName="image" strokeWidth="4" showInline="true" maxUsages="1" snap="pixel">
+    <Label value="withers" background="#e63946" hotkey="1" />
+    <Label value="thoracic" background="#f4a261" hotkey="2" />
+    <Label value="thoracolumbar" background="#e9c46a" hotkey="3" />
+    <Label value="lumbar" background="#2a9d8f" hotkey="4" />
+    <Label value="sacrum" background="#457b9d" hotkey="5" />
+  </KeyPointLabels>
+</View>
