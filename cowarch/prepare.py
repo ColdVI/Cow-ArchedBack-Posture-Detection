@@ -7,12 +7,15 @@ what the batch backend would have written without producing any files.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
 from .detect import bbox_crop, predict_cows, resize_mask
 from .frames import dhash, hamming_distance, require_cv2, safe_token
 from .geometry import auto_topline_features
+
+PIPELINE_VERSION = "longitudinal-v1"
 
 REJECT_REASONS = (
     "no_cow",
@@ -23,6 +26,7 @@ REJECT_REASONS = (
     "empty_crop",
     "near_duplicate",
     "overlaps_accepted",
+    "fragmented_mask",
 )
 
 
@@ -111,8 +115,36 @@ def blank_record(source_id: str, video_id: str, frame_idx: int, original_name: s
         "farm_id": "",
         "cow_id": "",
         "passage_id": "",
+        "timestamp_utc": "",
         "camera_id": "",
+        "is_ir": False,
+        "mask_component_count": 0,
+        "body_length_px": np.nan,
+        "pipeline_version": PIPELINE_VERSION,
     }
+
+
+def frame_timestamp_utc(
+    start_timestamp: str | datetime | None,
+    frame_idx: int,
+    source_fps: float | None,
+) -> str:
+    """Return an ISO-8601 UTC frame time, or blank when source time is unknown."""
+    if start_timestamp is None or str(start_timestamp).strip() == "":
+        return ""
+    text = str(start_timestamp).strip()
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"Invalid source timestamp: {start_timestamp!r}") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("Source timestamp must include a timezone offset")
+    offset_seconds = 0.0
+    if source_fps is not None and np.isfinite(source_fps) and source_fps > 0:
+        offset_seconds = int(frame_idx) / float(source_fps)
+    return (parsed.astimezone(timezone.utc) + timedelta(seconds=offset_seconds)).isoformat().replace(
+        "+00:00", "Z"
+    )
 
 
 def detect_frame_cows(
@@ -226,6 +258,29 @@ def process_frame(
     outcome.crop = crop
     outcome.crop_box = crop_box
 
+    if raw_mask is not None:
+        full_mask = resize_mask(raw_mask, (frame_height, frame_width))
+        left, top, right, bottom = crop_box
+        crop_mask = full_mask[top:bottom, left:right].astype(bool)
+        outcome.mask = crop_mask
+        record["mask_area_ratio"] = float(full_mask.mean())
+        component_count, _ = cv2.connectedComponents(crop_mask.astype(np.uint8))
+        record["mask_component_count"] = int(max(0, component_count - 1))
+        record.update(auto_topline_features(crop_mask))
+        if record["mask_component_count"] > 1:
+            record["reject_reason"] = "fragmented_mask"
+            return outcome
+    else:
+        record.update(
+            {
+                "mask_area_ratio": np.nan,
+                "auto_sagitta": np.nan,
+                "auto_chord_rmse": np.nan,
+                "auto_circle_curvature_norm": np.nan,
+                "body_length_px": np.nan,
+            }
+        )
+
     hash_value = dhash(crop)
     outcome.hash_value = hash_value
     record["dhash"] = f"{hash_value:016x}"
@@ -235,23 +290,6 @@ def process_frame(
 
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     record["blur_laplacian_var"] = float(cv2.Laplacian(gray, cv2.CV_64F).var())
-
-    if raw_mask is not None:
-        full_mask = resize_mask(raw_mask, (frame_height, frame_width))
-        left, top, right, bottom = crop_box
-        crop_mask = full_mask[top:bottom, left:right]
-        outcome.mask = crop_mask
-        record["mask_area_ratio"] = float(full_mask.mean())
-        record.update(auto_topline_features(crop_mask))
-    else:
-        record.update(
-            {
-                "mask_area_ratio": np.nan,
-                "auto_sagitta": np.nan,
-                "auto_chord_rmse": np.nan,
-                "auto_circle_curvature_norm": np.nan,
-            }
-        )
 
     record["accepted"] = True
     record["reject_reason"] = ""

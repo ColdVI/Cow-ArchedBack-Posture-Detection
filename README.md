@@ -1,24 +1,47 @@
-# Cow Arched-Back Posture PoC
+# Cow Arched-Back Posture Longitudinal Triage
 
-Yan görünüşlü inek görüntülerinde `arched-back posture` tespiti için 2–3 günlük,
-literatürle uyumlu ve yeniden üretilebilir bir proof-of-concept hattıdır.
+Sabit yan kameradan geçen her ineği kendi geçmişiyle karşılaştıran,
+`arched-back posture` değişimini erken inceleme kuyruğuna taşıyan ürün hattıdır.
+Eski tek-kare sınıflandırıcı geriye dönük deneyler için korunur; v1'in ana sinyali
+segmentasyon maskesinden deterministik geometri ve geçiş-seviyesi agregasyondur.
 
-Bu proje **topallık veya hastalık teşhisi koymaz**. Çıktısı yalnızca insanın
-verdiği görsel duruş etiketine göre `arched-back probability` değeridir.
+Bu proje **topallık veya hastalık teşhisi koymaz**. Çıktısı, bir ineğin kendi
+normalinden sapan duruş ölçümü için inceleme önerisidir. Kod hattı uygulanmıştır;
+saha performansı ancak P2 varyans kapısı ve retrospektif/prospektif validasyonla
+gösterilebilir.
+
+## V1 akışı
+
+```text
+30 fps ham kayıt (değiştirilmez)
+    → 1 fps türetilmiş frame/mask manifesti
+    → passage bazında robust geometri özeti
+    → varyans GO/NO-GO kapısı
+    → rolling medyan + MAD baseline, EWMA/CUSUM
+    → günlük kapasiteden türetilen inceleme eşiği
+    → tedavi kayıtlarıyla retrospektif validasyon
+```
+
+Ham videolar `data/raw/` gibi türetilmiş `data/prepared/` dizininden ayrı bir
+yerde saklanmalıdır. `02_prepare.py` kaynak dosyayı silmez veya dedupe etmez;
+1 fps örnekleme ve pHash dedupe yalnız hazırlanan dataset'e uygulanır.
 
 ## Bilimsel sınırlar
 
 - Sırt kamburluğu topallıkla ilişkilidir fakat tek başına duyarlı ve özgül bir
   klinik test değildir.
-- Veri bölümü frame bazında değil `source/video/cow` grubu bazında yapılır.
+- Veri bölümü frame bazında değil varsayılan olarak `cow_id` bazında yapılır.
+- `cow_id` eksik veya boşsa split ve eğitim sessizce `video_id`'ye düşmez.
 - `normal`, `arched`, `uncertain`, `invalid` etiketleri kullanılır; son iki sınıf
   ana eğitime alınmaz.
 - Segmentasyon maskesinin iki ucunu sabit yüzdeyle kırparak çıkarılan geometri
   yalnızca **deneysel yardımcı özellik** kabul edilir.
-- Anatomik geometri için önerilen ana yol beş dorsal keypoint'tir:
+- Eski supervised karşılaştırma için anatomik geometri yolu beş dorsal keypoint'tir:
   `withers → thoracic → thoracolumbar → lumbar → sacrum`.
-- Otomasyon insan kararının yerine geçmez; kare çıkarma, cow crop, duplicate
-  eleme, kalite metadatası ve etiketleme sırasını hızlandırır.
+- V1 longitudinal ölçümde sabit `%20` kırpmalı `auto_sagitta` tercih edilen
+  tekrarlanabilir sinyaldir; anatomik doğruluk iddiası taşımaz.
+- Sistem değişimi tespit eder, durumu değil. Baseline'ı zaten yüksek kronik bir
+  inek hiç tetiklenmeyebilir.
 
 ## Kurulum
 
@@ -167,7 +190,7 @@ python scripts/01_collect.py  --sources data/sources.csv --output-dir data/raw \
 python scripts/02_prepare.py  --sources data/sources_selected.csv \
                               --output-dir data/prepared --manifest data/manifest.csv \
                               --target-fps 1 --model yolo11n-seg.pt
-python scripts/03_split.py    --manifest data/manifest.csv --group-column video_id
+python scripts/03_split.py    --manifest data/manifest.csv
 python scripts/04_label.py    --manifest data/manifest.csv --split test --order random \
                               --reviewer posture-reviewer-01
 python scripts/05_train.py    --manifest data/manifest.csv --output-dir outputs/run01 \
@@ -175,6 +198,48 @@ python scripts/05_train.py    --manifest data/manifest.csv --output-dir outputs/
 python scripts/06_report.py   --run-dir outputs/run01 --manifest data/manifest.csv
 python scripts/07_predict.py  --model outputs/run01/embedding.joblib \
                               --manifest data/new_manifest.csv --output outputs/new_predictions.csv
+```
+
+Longitudinal backend:
+
+```bash
+python scripts/10_aggregate_passages.py \
+  --manifest data/manifest.csv --output data/passages.csv \
+  --min-quality 0.5 --min-valid-frames 3
+
+python scripts/11_variance_study.py \
+  --passages data/passages.csv --arched-cow-ids data/known_arched_cows.csv \
+  --camera-id camera_01 --output-dir outputs/variance_study
+
+# Yalnız variance study kararı GO ise çalışır. sigma floor ve günlük inceleme
+# kapasitesi zorunlu girdidir; sabit posture/z eşiği kullanılmaz.
+python scripts/12_detect_changes.py \
+  --passages data/passages.csv \
+  --variance-summary outputs/variance_study/summary.json \
+  --calvings data/calvings.csv --sigma-floor 0.002 --daily-capacity 8 \
+  --output-dir outputs/changes
+
+python scripts/12_validate_retrospective.py \
+  --daily-signals outputs/changes/daily_signals.csv \
+  --treatments data/treatments.csv --calvings data/calvings.csv \
+  --output-dir outputs/retrospective
+```
+
+`treatments.csv` en az `date,cow_id` taşır; `lesion_type`, `foot` ve özellikle
+`trigger=routine|observed` önerilir. Eksik `trigger` aynı gün müdahale edilen
+inek sayısından yaklaşık üretilir ve raporda inferred olarak işaretlenir.
+`calvings.csv` şeması `cow_id,date`'tir. Peripartum penceresinde alarm bastırılır
+ve doğum sonrası kişisel baseline yeniden kurulur.
+
+Detektör fine-tuning v1'deki tek supervised iştir. Metadata dosyası
+`image,is_ir,behind_rails` kolonlarını taşır; preflight en az 300 etiketli kareyi,
+IR/gece ve korkuluk arkası örneklerini zorunlu tutar:
+
+```bash
+python scripts/13_train_detector.py \
+  --data data/detector/data.yaml \
+  --dataset-metadata data/detector/metadata.csv \
+  --output-dir outputs/detector_v1
 ```
 
 `04_label.py` yalnız image-only **Pass A posture** için cv2 tabanlı terminal
@@ -226,6 +291,13 @@ python scripts/05_train.py --manifest data/manifest.csv --output-dir outputs/aut
 ```
 
 ## Minimum veri hedefi
+
+Longitudinal GO/NO-GO çalışması için hedef yaklaşık 50 inek, inek başına 2–3
+hafta ve günde birden çok geçiştir. Bilinen kambur ineklerin yalnız `cow_id`
+listesi gerekir; yeni posture etiketi veya model eğitimi gerekmez. Varyans
+çalışması kamera ve `pipeline_version` bazında ayrı koşulur.
+
+Eski tek-kare supervised karşılaştırma için önceki pratik hedefler:
 
 - 200–500 geçerli yan görünüş crop
 - Mümkünse en az 50–100 `arched` örneği

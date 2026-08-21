@@ -7,6 +7,21 @@ import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit
 
 
+def require_complete_groups(df: pd.DataFrame, group_column: str) -> pd.Series:
+    """Return normalized group IDs or fail before any split/training work.
+
+    Cow-level independence is a data contract, not a best-effort preference.
+    In particular, an absent/blank ``cow_id`` must never silently become a
+    video-level split.
+    """
+    if group_column not in df.columns:
+        raise ValueError(f"Missing group column: {group_column}")
+    groups = df[group_column].astype(str).str.strip()
+    if (groups == "").any():
+        raise ValueError(f"Blank values found in group column: {group_column}")
+    return groups
+
+
 def assign_group_splits(
     df: pd.DataFrame,
     group_column: str,
@@ -18,12 +33,7 @@ def assign_group_splits(
     fractions = np.array([train_fraction, val_fraction, test_fraction], dtype=float)
     if np.any(fractions <= 0) or not np.isclose(fractions.sum(), 1.0):
         raise ValueError("train/val/test fractions must be positive and sum to 1")
-    if group_column not in df.columns:
-        raise ValueError(f"Missing group column: {group_column}")
-
-    groups = df[group_column].astype(str).str.strip()
-    if (groups == "").any():
-        raise ValueError(f"Blank values found in group column: {group_column}")
+    groups = require_complete_groups(df, group_column)
     if groups.nunique() < 3:
         raise ValueError("At least three independent groups are required")
 
@@ -57,11 +67,11 @@ def assign_group_splits(
 def assert_no_group_leakage(df: pd.DataFrame, group_column: str) -> None:
     if "split" not in df.columns:
         raise ValueError("split column is required")
+    groups = require_complete_groups(df, group_column)
     membership: dict[str, set[str]] = defaultdict(set)
-    for group, split in zip(df[group_column].astype(str), df["split"].astype(str)):
+    for group, split in zip(groups, df["split"].astype(str)):
         if split:
             membership[group].add(split)
     leaked = {group: sorted(splits) for group, splits in membership.items() if len(splits) > 1}
     if leaked:
         raise ValueError(f"Group leakage detected: {leaked}")
-

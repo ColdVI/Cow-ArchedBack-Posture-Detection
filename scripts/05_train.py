@@ -16,7 +16,7 @@ from cowarch.embeddings import extract_resnet18_embeddings
 from cowarch.geometry import decode_keypoints, keypoint_features
 from cowarch.io import as_bool, atomic_write_csv, read_manifest, resolve_data_path
 from cowarch.modeling import binary_metrics, train_with_validation
-from cowarch.splits import assert_no_group_leakage
+from cowarch.splits import assert_no_group_leakage, require_complete_groups
 
 
 KEYPOINT_FEATURES = [
@@ -179,7 +179,7 @@ def main() -> None:
         default=["geometry", "embedding", "fusion"],
     )
     parser.add_argument("--allow-auto-geometry", action="store_true")
-    parser.add_argument("--group-column", default="video_id")
+    parser.add_argument("--group-column", default="cow_id")
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--c-grid", nargs="+", type=float, default=[0.01, 0.1, 1.0, 10.0])
@@ -193,6 +193,7 @@ def main() -> None:
     frame = frame.loc[accepted & frame["label"].isin(["normal", "arched"])].copy().reset_index(drop=True)
     if frame.empty:
         raise ValueError("No accepted normal/arched labels were found")
+    require_complete_groups(frame, args.group_column)
     if set(frame["split"]) - {"train", "val", "test"}:
         raise ValueError("Every training row must have train/val/test split")
     assert_no_group_leakage(frame, args.group_column)

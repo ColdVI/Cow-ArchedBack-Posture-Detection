@@ -5,7 +5,7 @@ import numpy as np
 
 from cowarch.frames import hamming_distance, safe_token
 from cowarch.detect import find_cow_class
-from cowarch.prepare import PrepareConfig, blank_record, process_frame
+from cowarch.prepare import PrepareConfig, blank_record, frame_timestamp_utc, process_frame
 
 
 def blank_frame(width=240, height=120):
@@ -78,7 +78,24 @@ class PrepareTests(unittest.TestCase):
         self.assertTrue(outcome.accepted)
         self.assertIsNotNone(outcome.mask)
         self.assertTrue(np.isfinite(record["auto_sagitta"]))
+        self.assertGreater(record["body_length_px"], 0)
+        self.assertEqual(record["mask_component_count"], 1)
         self.assertTrue(all(key.startswith("auto_") for key in record if "sagitta" in key))
+
+    def test_fragmented_mask_has_specific_reject_reason(self):
+        frame = blank_frame()
+        mask = np.zeros((120, 240), dtype=bool)
+        mask[30:60, 40:90] = True
+        mask[30:60, 120:180] = True
+        record = blank_record("src", "vid", 0, "a.png")
+        detection = (np.array([40, 25, 185, 65], dtype=float), 0.91, mask)
+        with patch("cowarch.prepare.predict_cows", return_value=[detection]):
+            outcome = process_frame(
+                frame, record, detector=object(), cow_class=0, config=PrepareConfig()
+            )
+        self.assertFalse(outcome.accepted)
+        self.assertEqual(outcome.reject_reason, "fragmented_mask")
+        self.assertEqual(record["mask_component_count"], 2)
 
     def test_single_image_can_select_one_of_multiple_detections(self):
         frame = blank_frame()
@@ -123,6 +140,19 @@ class PrepareTests(unittest.TestCase):
     def test_helpers(self):
         self.assertEqual(safe_token("a b/c"), "a_b_c")
         self.assertEqual(hamming_distance(0b1010, 0b1001), 2)
+        self.assertEqual(
+            frame_timestamp_utc("2026-01-01T03:00:00+03:00", 50, 25.0),
+            "2026-01-01T00:00:02Z",
+        )
+        self.assertEqual(frame_timestamp_utc("", 0, None), "")
+
+    def test_blank_record_contains_longitudinal_schema(self):
+        record = blank_record("src", "vid", 0, "a.png")
+        expected = {
+            "cow_id", "passage_id", "timestamp_utc", "camera_id", "is_ir",
+            "mask_component_count", "body_length_px", "pipeline_version",
+        }
+        self.assertTrue(expected.issubset(record))
 
 
 if __name__ == "__main__":

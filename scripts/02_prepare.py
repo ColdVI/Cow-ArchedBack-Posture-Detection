@@ -16,9 +16,13 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from cowarch.detect import load_detector
-from cowarch.frames import iter_frames
+from cowarch.frames import iter_frames, probe_source
 from cowarch.io import atomic_write_csv
-from cowarch.prepare import PrepareConfig, blank_record, process_frame
+from cowarch.prepare import PrepareConfig, blank_record, frame_timestamp_utc, process_frame
+
+
+def scalar_bool(value) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
 def main() -> None:
@@ -81,6 +85,11 @@ def main() -> None:
         if not path.exists():
             raise FileNotFoundError(f"Source path not found: {path}")
         video_id = str(source.get("video_id", "")).strip() or source_id
+        metadata = probe_source(path, kind)
+        source_fps = metadata.get("fps")
+        start_timestamp = source.get("start_timestamp_utc", "") or source.get(
+            "timestamp_utc", ""
+        )
         last_kept_hash: int | None = None
         kept_count = 0
 
@@ -88,6 +97,10 @@ def main() -> None:
             if args.max_per_source and kept_count >= args.max_per_source:
                 break
             record = blank_record(source_id, video_id, frame_idx, original_name)
+            record["raw_source_path"] = str(path.resolve())
+            record["timestamp_utc"] = frame_timestamp_utc(
+                start_timestamp, frame_idx, source_fps
+            )
             record["source_score"] = source.get("source_score", "")
             record["license"] = source.get("license", "")
             for column in (
@@ -95,6 +108,7 @@ def main() -> None:
                 "passage_id", "camera_id",
             ):
                 record[column] = source.get(column, "")
+            record["is_ir"] = scalar_bool(source.get("is_ir", False))
 
             outcome = process_frame(
                 frame,

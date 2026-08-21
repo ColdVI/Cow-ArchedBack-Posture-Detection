@@ -28,7 +28,16 @@ class SplitTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             assign_group_splits(frame, "video_id")
 
+    def test_missing_cow_id_does_not_fall_back_to_video(self):
+        frame = pd.DataFrame({"video_id": ["a", "b", "c"]})
+        with self.assertRaisesRegex(ValueError, "Missing group column: cow_id"):
+            assign_group_splits(frame, "cow_id")
+
+    def test_blank_cow_id_is_rejected(self):
+        frame = pd.DataFrame({"cow_id": ["cow-1", "", "cow-3"]})
+        with self.assertRaisesRegex(ValueError, "Blank values.*cow_id"):
+            assign_group_splits(frame, "cow_id")
+
 
 if __name__ == "__main__":
     unittest.main()
-

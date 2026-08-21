@@ -1,10 +1,11 @@
 # Future System — Mevcut PoC'de Doğrulanmadı
 
 > **Durum: future phase / mevcut PoC'de doğrulanmadı.** Bu belge bir araştırma
-> yönü taslağıdır; mevcut repoda uygulanmış, eğitilmiş veya sahada valide edilmiş
-> özellikleri anlatmaz. Mevcut PoC tek karede insan tanımlı arched-back posture
-> sınıflandırır; lameness/hastalık tanısı, cow identity, zaman serisi takibi veya
-> klinik alert üretmez.
+> yönü taslağıdır; mevcut repoda uygulanmış veya sahada valide edilmiş özellikler
+> olarak okunmamalıdır. Repo artık deterministik passage agregasyonu, kişisel
+> baseline ve offline triyaj sinyali kodunu içerir; bunlar P2 kapısı ve saha
+> validasyonu geçmeden klinik kabiliyet sayılmaz. Sistem lameness/hastalık tanısı
+> üretmez.
 
 ## Future phase — Temporal BiLSTM/TCN (doğrulanmadı)
 
@@ -30,15 +31,6 @@ sinyal olabilir. RFID ile görüntü zaman eşlemesi, duplicate/mismatch oranı,
 unknown identity politikası ve gizlilik/erişim kuralları prospective olarak test
 edilmelidir. Mevcut PoC RFID okumaz ve cow re-ID yapmaz.
 
-## Future phase — Longitudinal baseline (doğrulanmadı)
-
-Yeterli güvenilir kimlik ve geçmiş veri oluşursa her cow için population
-threshold'u yerine kişisel longitudinal baseline araştırılabilir. Baseline yalnız
-uygun kalite ve karşılaştırılabilir standing/walking koşullarındaki geçmiş
-ölçümlerden kurulmalı; yaş, laktasyon, bakım, kamera değişimi ve veri eksikliği
-gibi drift kaynakları sürümlenmelidir. Baseline'dan sapma klinik tanı değildir.
-Mevcut PoC cow-specific baseline hesaplamaz.
-
 ## Future phase — 200 günlük history (doğrulanmadı)
 
 Önerilen sonraki sistem, cow başına zaman damgalı posture probability,
@@ -51,8 +43,9 @@ içermez.
 
 ## Future phase — Alert ve clinical feedback (doğrulanmadı)
 
-Alert ancak temporal model, identity ve longitudinal baseline bağımsız olarak
-valide edildikten sonra araştırılabilir. Aday akış:
+Offline kapasite-kalibreli triyaj sinyali mevcut olsa da, kullanıcıya dönük alert
+ve clinical feedback ancak identity ve longitudinal baseline sahada bağımsız
+olarak valide edildikten sonra araştırılabilir. Aday akış:
 
 1. Tek bir frame yerine tekrarlanan passage/günlerde kalıcı sapmayı değerlendirme.
 2. Görüntü kalitesi ve identity güveni düşükse alert bastırma veya review kuyruğuna
@@ -66,8 +59,7 @@ valide edildikten sonra araştırılabilir. Aday akış:
 6. False-alert yükü, missed event, time-to-review ve cow/farm bazında performansı
    prospective çalışma ile ölçme.
 
-Mevcut PoC alert üretmez ve clinical feedback döngüsü saha verisiyle
-doğrulanmamıştır.
+Clinical feedback döngüsü saha verisiyle doğrulanmamıştır.
 
 ## Future phase için geçiş kapıları
 

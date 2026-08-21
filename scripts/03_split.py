@@ -14,7 +14,7 @@ from cowarch.splits import assign_group_splits, assert_no_group_leakage
 def main() -> None:
     parser = argparse.ArgumentParser(description="Create leakage-safe group splits in the manifest.")
     parser.add_argument("--manifest", required=True, type=Path)
-    parser.add_argument("--group-column", default="video_id")
+    parser.add_argument("--group-column", default="cow_id")
     parser.add_argument("--train", type=float, default=0.60)
     parser.add_argument("--val", type=float, default=0.20)
     parser.add_argument("--test", type=float, default=0.20)

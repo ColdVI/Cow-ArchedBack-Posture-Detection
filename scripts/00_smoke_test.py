@@ -215,6 +215,9 @@ def main() -> None:
             "--manifest", str(manifest),
             "--output-dir", str(args.run_dir),
             "--models", "geometry",
+            # Synthetic fixtures predate RFID/cow identity. Production defaults
+            # remain cow_id; this legacy plumbing check opts into video groups.
+            "--group-column", "video_id",
         ],
     )
     run(

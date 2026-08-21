@@ -100,6 +100,7 @@ def auto_topline_features(mask: np.ndarray, trim: float = 0.20) -> dict[str, flo
             "auto_sagitta": np.nan,
             "auto_chord_rmse": np.nan,
             "auto_circle_curvature_norm": np.nan,
+            "body_length_px": np.nan,
         }
     px, py = extracted
     chord = chord_values(px, py)
@@ -114,6 +115,7 @@ def auto_topline_features(mask: np.ndarray, trim: float = 0.20) -> dict[str, flo
         "auto_sagitta": float(np.max(deviation) / width),
         "auto_chord_rmse": float(np.sqrt(np.mean(np.square(deviation))) / width),
         "auto_circle_curvature_norm": float(menger_curvature(points) * width),
+        "body_length_px": width,
     }
 
 

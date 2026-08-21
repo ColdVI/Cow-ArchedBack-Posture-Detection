@@ -39,6 +39,41 @@ def safe_interval(payload: dict) -> str:
     return f"[{safe_float(payload.get('lower'))}, {safe_float(payload.get('upper'))}]"
 
 
+def expected_ppv(sensitivity: float, specificity: float, prevalence: float = 0.02) -> float:
+    """Reweight sensitivity/specificity to an operational herd prevalence."""
+    if not 0.0 < prevalence < 1.0:
+        raise ValueError("prevalence must be between zero and one")
+    values = np.asarray([sensitivity, specificity], dtype=float)
+    if not np.isfinite(values).all():
+        return float("nan")
+    denominator = prevalence * sensitivity + (1.0 - prevalence) * (1.0 - specificity)
+    return float(prevalence * sensitivity / denominator) if denominator > 0 else float("nan")
+
+
+def preparation_slices(manifest: pd.DataFrame) -> list[dict]:
+    """Summarize acceptance for operationally important acquisition slices."""
+    accepted = as_bool(manifest["accepted"])
+    slices: list[tuple[str, pd.Series]] = []
+    if "is_ir" in manifest.columns:
+        slices.append(("IR / night (`is_ir == True`)", as_bool(manifest["is_ir"])))
+    if "mask_component_count" in manifest.columns:
+        components = pd.to_numeric(manifest["mask_component_count"], errors="coerce").fillna(0)
+        slices.append(("Fragmented mask (`mask_component_count > 1`)", components > 1))
+    rows = []
+    for name, mask in slices:
+        total = int(mask.sum())
+        kept = int((mask & accepted).sum())
+        rows.append(
+            {
+                "slice": name,
+                "total": total,
+                "accepted": kept,
+                "acceptance_rate": kept / total if total else float("nan"),
+            }
+        )
+    return rows
+
+
 def attach_evaluation_groups(
     predictions: pd.DataFrame,
     manifest: pd.DataFrame,
@@ -295,8 +330,8 @@ def main() -> None:
         "",
         "Frame metrics are retained for error analysis, but their confidence intervals resample whole groups.",
         "",
-        "| Model | Frames | Groups | PR-AUC | Cluster 95% CI | ROC-AUC | Recall | Specificity | Precision | F1 | Balanced accuracy |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Model | Frames | Groups | PR-AUC | Cluster 95% CI | ROC-AUC | Recall | Specificity | Precision | Expected PPV @ 2% | F1 | Balanced accuracy |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for model in metrics:
         test = evaluation[model]["frame"]
@@ -305,7 +340,9 @@ def main() -> None:
             f"| {model} | {test['n']} | {test['n_groups']} | {safe_float(test['pr_auc'])} | "
             f"{safe_interval(interval)} | {safe_float(test['roc_auc'])} | "
             f"{safe_float(test['sensitivity_recall'])} | {safe_float(test['specificity'])} | "
-            f"{safe_float(test['precision'])} | {safe_float(test['f1'])} | "
+            f"{safe_float(test['precision'])} | "
+            f"{safe_float(expected_ppv(test['sensitivity_recall'], test['specificity']))} | "
+            f"{safe_float(test['f1'])} | "
             f"{safe_float(test['balanced_accuracy'])} |"
         )
     lines += [
@@ -314,8 +351,8 @@ def main() -> None:
         "",
         f"Each group contributes one `{args.aggregation}` probability and must have exactly one ground-truth label.",
         "",
-        "| Model | Groups | Frames | PR-AUC | Cluster 95% CI | ROC-AUC | Recall | Specificity | Precision | F1 | Balanced accuracy |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Model | Groups | Frames | PR-AUC | Cluster 95% CI | ROC-AUC | Recall | Specificity | Precision | Expected PPV @ 2% | F1 | Balanced accuracy |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for model in metrics:
         test = evaluation[model]["group"]
@@ -324,8 +361,26 @@ def main() -> None:
             f"| {model} | {test['n_groups']} | {test['n_frames']} | {safe_float(test['pr_auc'])} | "
             f"{safe_interval(interval)} | {safe_float(test['roc_auc'])} | "
             f"{safe_float(test['sensitivity_recall'])} | {safe_float(test['specificity'])} | "
-            f"{safe_float(test['precision'])} | {safe_float(test['f1'])} | "
+            f"{safe_float(test['precision'])} | "
+            f"{safe_float(expected_ppv(test['sensitivity_recall'], test['specificity']))} | "
+            f"{safe_float(test['f1'])} | "
             f"{safe_float(test['balanced_accuracy'])} |"
+        )
+    lines += [
+        "",
+        "Expected PPV is recalculated as `prevalence × sensitivity / "
+        "(prevalence × sensitivity + (1 − prevalence) × (1 − specificity))`; "
+        "it is not the test-set precision.",
+        "",
+        "## Preparation quality slices",
+        "",
+        "| Slice | Frames | Accepted | Acceptance rate |",
+        "|---|---:|---:|---:|",
+    ]
+    for row in preparation_slices(manifest):
+        lines.append(
+            f"| {row['slice']} | {row['total']} | {row['accepted']} | "
+            f"{safe_float(row['acceptance_rate'])} |"
         )
     lines += ["", "## Evaluation figures", ""]
     for model in metrics:
