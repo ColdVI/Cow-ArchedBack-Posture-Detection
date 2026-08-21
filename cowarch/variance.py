@@ -25,20 +25,23 @@ def variance_study(
     *,
     signal_ratio_min: float = 2.0,
     camera_drift_ratio: float = 2.0,
+    measurement_column: str = "sagitta_median",
 ) -> tuple[dict, pd.DataFrame, pd.DataFrame]:
-    """Return summary, per-cow statistics and eligible measurement rows."""
-    required = {"cow_id", "camera_id", "timestamp_utc", "sagitta_median"}
+    """Return the v3 absolute-score variance gate for one measurement path."""
+    required = {"cow_id", "camera_id", "timestamp_utc", measurement_column}
     if missing := sorted(required - set(passages.columns)):
         raise ValueError(f"Passages table is missing columns: {missing}")
     if signal_ratio_min <= 0 or camera_drift_ratio <= 0:
         raise ValueError("ratio thresholds must be positive")
 
     frame = passages.copy()
-    if "baseline_eligible" in frame.columns:
+    if "score_eligible" in frame.columns:
+        frame = frame.loc[as_bool(frame["score_eligible"])].copy()
+    elif "baseline_eligible" in frame.columns:
         frame = frame.loc[as_bool(frame["baseline_eligible"])].copy()
     frame["cow_id"] = frame["cow_id"].astype(str).str.strip()
     if frame.empty:
-        raise ValueError("No baseline-eligible passages were found")
+        raise ValueError("No score-eligible passages were found")
     if (frame["cow_id"] == "").any():
         raise ValueError("Blank cow_id found in eligible passages")
 
@@ -57,7 +60,7 @@ def variance_study(
         versions = np.array(["legacy"])
 
     frame["timestamp"] = pd.to_datetime(frame["timestamp_utc"], utc=True, errors="coerce")
-    frame["sagitta"] = pd.to_numeric(frame["sagitta_median"], errors="coerce")
+    frame["sagitta"] = pd.to_numeric(frame[measurement_column], errors="coerce")
     frame = frame.dropna(subset=["timestamp", "sagitta"]).copy()
     if frame.empty:
         raise ValueError("Eligible passages have no finite timestamped sagitta values")
@@ -108,9 +111,19 @@ def variance_study(
     arched_median = float(per_cow.loc[per_cow["known_arched"], "sagitta_median"].median())
     normal_median = float(per_cow.loc[~per_cow["known_arched"], "sagitta_median"].median())
     delta_signed = arched_median - normal_median
+    healthy_medians = per_cow.loc[~per_cow["known_arched"], "sagitta_median"]
+    sigma_between_healthy = (
+        float(healthy_medians.std(ddof=1)) if len(healthy_medians) >= 2 else float("nan")
+    )
     if np.isfinite(sigma_within_cow) and sigma_within_cow > 0:
-        signal_ratio = abs(delta_signed) / sigma_within_cow
+        within_signal_ratio = abs(delta_signed) / sigma_within_cow
     elif abs(delta_signed) > 0 and sigma_within_cow == 0:
+        within_signal_ratio = float("inf")
+    else:
+        within_signal_ratio = float("nan")
+    if np.isfinite(sigma_between_healthy) and sigma_between_healthy > 0:
+        signal_ratio = abs(delta_signed) / sigma_between_healthy
+    elif abs(delta_signed) > 0 and sigma_between_healthy == 0:
         signal_ratio = float("inf")
     else:
         signal_ratio = float("nan")
@@ -148,15 +161,18 @@ def variance_study(
         "sigma_within_day": sigma_within_day,
         "sigma_between_day": sigma_between_day,
         "sigma_within_cow": sigma_within_cow,
+        "sigma_between_healthy": sigma_between_healthy,
         "arched_cow_median": arched_median,
         "comparison_cow_median": normal_median,
         "delta_signed": delta_signed,
         "delta_absolute": abs(delta_signed),
-        "delta_over_sigma_within_cow": signal_ratio,
+        "delta_over_sigma_within_cow": within_signal_ratio,
+        "delta_over_sigma_between_healthy": signal_ratio,
         "between_over_within_day": day_ratio,
         "signal_ratio_min": signal_ratio_min,
         "camera_drift_ratio": camera_drift_ratio,
         "signal_pass": signal_pass,
         "camera_environment_warning": camera_warning,
+        "measurement_column": measurement_column,
     }
     return summary, per_cow, frame

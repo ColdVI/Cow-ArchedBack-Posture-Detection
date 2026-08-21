@@ -38,6 +38,142 @@ def normalize_treatments(
     return frame
 
 
+def normalize_calvings(calvings: pd.DataFrame) -> pd.DataFrame:
+    required = {"date", "cow_id"}
+    if missing := sorted(required - set(calvings.columns)):
+        raise ValueError(f"Calvings table is missing columns: {missing}")
+    frame = calvings.copy()
+    frame["date"] = pd.to_datetime(frame["date"], utc=True, errors="coerce").dt.floor("D")
+    frame["cow_id"] = frame["cow_id"].astype(str).str.strip()
+    if frame["date"].isna().any() or (frame["cow_id"] == "").any():
+        raise ValueError("Calvings require non-blank cow_id and parseable date")
+    return frame
+
+
+def validate_absolute_scores(
+    passages: pd.DataFrame,
+    treatments: pd.DataFrame,
+    calvings: pd.DataFrame,
+    *,
+    score_column: str = "sagitta_median",
+    routine_count_threshold: int = 5,
+    event_horizon_days: int = 30,
+    peripartum_days_before: int = 7,
+    peripartum_days_after: int = 21,
+) -> tuple[dict, pd.DataFrame, pd.DataFrame]:
+    """Correlate absolute passage score with subsequent observed treatment.
+
+    Routine treatments are retained in the normalized audit table but never
+    treated as positive clinical events. Passages inside the configured
+    calving window are marked and excluded from the correlation.
+    """
+    required = {"passage_id", "cow_id", "timestamp_utc", score_column}
+    if missing := sorted(required - set(passages.columns)):
+        raise ValueError(f"Passages table is missing columns: {missing}")
+    if event_horizon_days < 1 or min(peripartum_days_before, peripartum_days_after) < 0:
+        raise ValueError("validation windows must be non-negative and event horizon positive")
+
+    frame = passages.copy()
+    if "score_eligible" in frame.columns:
+        frame = frame.loc[as_bool(frame["score_eligible"])].copy()
+    frame["cow_id"] = frame["cow_id"].astype(str).str.strip()
+    frame["date"] = pd.to_datetime(
+        frame["timestamp_utc"], utc=True, errors="coerce"
+    ).dt.floor("D")
+    frame["absolute_score"] = pd.to_numeric(frame[score_column], errors="coerce")
+    frame = frame.dropna(subset=["date", "absolute_score"]).copy()
+    if frame.empty or (frame["cow_id"] == "").any():
+        raise ValueError("No eligible passages with cow_id, timestamp and finite score")
+
+    treatment_frame = normalize_treatments(
+        treatments, routine_count_threshold=routine_count_threshold
+    )
+    calving_frame = normalize_calvings(calvings)
+    observed = treatment_frame.loc[treatment_frame["trigger"].eq("observed")].copy()
+
+    frame["peripartum_suppressed"] = False
+    for event in calving_frame.itertuples(index=False):
+        lower = event.date - pd.Timedelta(days=peripartum_days_before)
+        upper = event.date + pd.Timedelta(days=peripartum_days_after)
+        mask = frame["cow_id"].eq(event.cow_id) & frame["date"].between(lower, upper)
+        frame.loc[mask, "peripartum_suppressed"] = True
+
+    frame["observed_treatment_within_horizon"] = False
+    frame["next_observed_treatment_date"] = ""
+    for index, row in frame.iterrows():
+        future = observed.loc[
+            observed["cow_id"].eq(row["cow_id"])
+            & observed["date"].between(
+                row["date"], row["date"] + pd.Timedelta(days=event_horizon_days)
+            )
+        ].sort_values("date")
+        if not future.empty:
+            frame.at[index, "observed_treatment_within_horizon"] = True
+            frame.at[index, "next_observed_treatment_date"] = future.iloc[0]["date"].date().isoformat()
+
+    analysis = frame.loc[~frame["peripartum_suppressed"]].copy()
+    outcome = analysis["observed_treatment_within_horizon"].astype(int)
+    if outcome.nunique() < 2:
+        pearson = float("nan")
+        spearman = float("nan")
+    else:
+        pearson = float(analysis["absolute_score"].corr(outcome, method="pearson"))
+        spearman = float(
+            analysis["absolute_score"].rank(method="average").corr(
+                outcome.rank(method="average"), method="pearson"
+            )
+        )
+
+    event_rows = []
+    for event_index, event in observed.iterrows():
+        preceding = analysis.loc[
+            analysis["cow_id"].eq(event["cow_id"])
+            & analysis["date"].between(
+                event["date"] - pd.Timedelta(days=event_horizon_days), event["date"]
+            )
+        ]
+        event_rows.append(
+            {
+                "treatment_index": int(event_index),
+                "cow_id": event["cow_id"],
+                "treatment_date": event["date"].date().isoformat(),
+                "has_preceding_score": bool(len(preceding)),
+                "max_preceding_score": (
+                    float(preceding["absolute_score"].max()) if len(preceding) else float("nan")
+                ),
+            }
+        )
+    events = pd.DataFrame(event_rows)
+    positive_scores = analysis.loc[outcome.eq(1), "absolute_score"]
+    comparison_scores = analysis.loc[outcome.eq(0), "absolute_score"]
+    metrics = {
+        "n_passages_total": int(len(frame)),
+        "n_passages_analyzed": int(len(analysis)),
+        "n_passages_peripartum_suppressed": int(frame["peripartum_suppressed"].sum()),
+        "n_observed_treatment_events": int(len(observed)),
+        "n_observed_events_with_preceding_score": (
+            int(events["has_preceding_score"].sum()) if not events.empty else 0
+        ),
+        "n_passages_before_observed_treatment": int(outcome.sum()),
+        "absolute_score_treatment_pearson": pearson,
+        "absolute_score_treatment_spearman": spearman,
+        "median_score_before_observed_treatment": (
+            float(positive_scores.median()) if len(positive_scores) else float("nan")
+        ),
+        "median_score_without_observed_treatment": (
+            float(comparison_scores.median()) if len(comparison_scores) else float("nan")
+        ),
+        "n_inferred_triggers": int(treatment_frame["trigger_inferred"].sum()),
+        "event_horizon_days": event_horizon_days,
+        "peripartum_days_before": peripartum_days_before,
+        "peripartum_days_after": peripartum_days_after,
+        "score_column": score_column,
+    }
+    treatment_frame["date"] = treatment_frame["date"].dt.date.astype(str)
+    frame["date"] = frame["date"].dt.date.astype(str)
+    return metrics, frame, treatment_frame
+
+
 def _persistent_start(
     cow_signals: pd.DataFrame,
     event_date: pd.Timestamp,

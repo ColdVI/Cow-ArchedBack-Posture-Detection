@@ -5,7 +5,9 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from cowarch.detector_training import validate_detector_dataset
+import numpy as np
+
+from cowarch.detector_training import topline_vertical_mae, validate_detector_dataset
 
 
 class DetectorTrainingTests(unittest.TestCase):
@@ -32,6 +34,20 @@ class DetectorTrainingTests(unittest.TestCase):
             ).to_csv(metadata, index=False)
             with self.assertRaisesRegex(ValueError, "IR/night"):
                 validate_detector_dataset(data, metadata, min_images=1)
+
+    def test_topline_metric_uses_only_anchor_interval(self):
+        truth = np.zeros((40, 60), dtype=np.uint8)
+        predicted = np.zeros_like(truth)
+        truth[10:35, 10:51] = 1
+        predicted[12:35, 10:51] = 1
+        # Artifacts outside withers/sacrum do not enter the metric.
+        predicted[1:35, :5] = 1
+        result = topline_vertical_mae(
+            predicted, truth, withers_x=10, sacrum_x=50
+        )
+        self.assertAlmostEqual(result["topline_mae_px"], 2.0)
+        self.assertAlmostEqual(result["topline_mae_body_length_fraction"], 0.05)
+        self.assertEqual(result["topline_columns_compared"], 41)
 
 
 if __name__ == "__main__":

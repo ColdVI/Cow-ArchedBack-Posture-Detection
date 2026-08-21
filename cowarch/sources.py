@@ -23,8 +23,10 @@ SOURCE_COLUMNS = (
     "video_id",
     "passage_id",
     "camera_id",
+    "camera_role",
     "notes",
 )
+VALID_CAMERA_ROLES = frozenset({"", "measurement", "passage_detection"})
 VALID_LICENSE_STATUSES = frozenset({"approved", "restricted", "unresolved"})
 LEGACY_UNAPPROVED_LICENSES = frozenset(
     {"", "check-before-use", "unknown", "unresolved"}
@@ -84,6 +86,14 @@ def normalize_source_schema(frame: pd.DataFrame) -> pd.DataFrame:
         )
     result["license_status"] = statuses
     result["license_name"] = names
+    roles = result["camera_role"].astype(str).str.strip().str.lower()
+    invalid_roles = sorted(set(roles) - VALID_CAMERA_ROLES)
+    if invalid_roles:
+        raise ValueError(
+            "invalid camera_role values; use measurement or passage_detection: "
+            f"{invalid_roles}"
+        )
+    result["camera_role"] = roles
     ordered = list(SOURCE_COLUMNS) + [
         column for column in result.columns if column not in SOURCE_COLUMNS
     ]

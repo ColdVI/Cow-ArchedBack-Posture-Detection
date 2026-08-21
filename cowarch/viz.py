@@ -11,7 +11,12 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .geometry import DORSAL_KEYPOINTS, chord_values, extract_topline
+from .geometry import (
+    DORSAL_KEYPOINTS,
+    LEGACY_DORSAL_KEYPOINTS,
+    chord_values,
+    extract_topline,
+)
 
 ARCHED_COLOR = "#d1495b"
 NORMAL_COLOR = "#2e86ab"
@@ -95,13 +100,36 @@ def panel_topline(ax, crop, mask, trim: float = 0.20) -> dict:
 
 
 def panel_keypoint_geometry(ax, crop, points) -> dict:
-    """Withers-sacrum chord, dorsal points, and the perpendicular sagitta."""
+    """Render the production three-point protocol or legacy five-point curve."""
     _show(ax, crop, "6. dorsal keypoint geometry")
     if points is None:
         ax.set_title("6. keypoint geometry (not annotated)", fontsize=9)
         return {"available": False}
 
     p = np.asarray(points, dtype=float)
+    if p.shape == (3, 2):
+        baseline = p[1] - p[0]
+        length = float(np.linalg.norm(baseline))
+        if length <= 1e-6:
+            ax.set_title("6. keypoint geometry (degenerate)", fontsize=9)
+            return {"available": False}
+        ax.plot(
+            [p[0, 0], p[1, 0]], [p[0, 1], p[1, 1]],
+            color="white", linewidth=1.4, linestyle="--",
+        )
+        ax.scatter(p[:, 0], p[:, 1], color=ACCENT, s=28)
+        for index, name in enumerate(DORSAL_KEYPOINTS):
+            ax.annotate(
+                f"{index + 1}.{name}", p[index], fontsize=6.5, color="white",
+                xytext=(2, 6), textcoords="offset points",
+            )
+        head_drop = float((p[2, 1] - p[0, 1]) / length)
+        ax.set_title(f"6. 3-point protocol (head drop={head_drop:.3f})", fontsize=9)
+        return {"available": True, "head_drop_norm": head_drop, "length_px": length}
+    if p.shape != (5, 2):
+        ax.set_title("6. keypoint geometry (invalid point count)", fontsize=9)
+        return {"available": False}
+
     baseline = p[-1] - p[0]
     length = float(np.linalg.norm(baseline))
     if length <= 1e-6:
@@ -117,7 +145,7 @@ def panel_keypoint_geometry(ax, crop, points) -> dict:
     ax.plot([p[0, 0], p[-1, 0]], [p[0, 1], p[-1, 1]], color="white", linewidth=1.4, linestyle="--")
     ax.plot(p[:, 0], p[:, 1], color=ACCENT, linewidth=1.6, marker="o", markersize=5)
     ax.plot([p[peak, 0], foot[0]], [p[peak, 1], foot[1]], color=ARCHED_COLOR, linewidth=2.4)
-    for index, name in enumerate(DORSAL_KEYPOINTS):
+    for index, name in enumerate(LEGACY_DORSAL_KEYPOINTS):
         ax.annotate(f"{index + 1}.{name}", p[index], fontsize=6.5, color="white",
                     xytext=(2, 6), textcoords="offset points")
     sagitta = float(np.max(deviation))

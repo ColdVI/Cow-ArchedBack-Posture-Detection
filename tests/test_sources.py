@@ -58,6 +58,14 @@ class SourceLicenseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid license_status"):
             normalize_and_require_approved_sources(source_frame(license_status="maybe"))
 
+    def test_camera_role_is_normalized_and_validated(self):
+        result = normalize_and_require_approved_sources(
+            source_frame(camera_role=" Measurement ")
+        )
+        self.assertEqual(result.loc[0, "camera_role"], "measurement")
+        with self.assertRaisesRegex(ValueError, "invalid camera_role"):
+            normalize_and_require_approved_sources(source_frame(camera_role="overview"))
+
     def test_collect_cli_blocks_before_creating_output_directory(self):
         script_path = Path(__file__).resolve().parents[1] / "scripts" / "01_collect.py"
         spec = importlib.util.spec_from_file_location("collect_script", script_path)

@@ -6,8 +6,10 @@ from cowarch.geometry import (
     anchored_topline,
     anchored_topline_features,
     auto_topline_features,
+    decode_keypoints,
     extract_topline,
     keypoint_features,
+    measurement_geometry,
     normalized_sagitta,
 )
 
@@ -55,6 +57,18 @@ class GeometryTests(unittest.TestCase):
         reverse = keypoint_features(points[::-1])
         for name in forward:
             self.assertAlmostEqual(forward[name], reverse[name], places=8)
+
+    def test_three_point_decoder_is_default_and_legacy_is_explicit(self):
+        three = [[10, 20], [80, 20], [5, 30]]
+        five = [[10, 20], [25, 18], [40, 15], [60, 18], [80, 20]]
+        self.assertEqual(decode_keypoints(three).shape, (3, 2))
+        self.assertIsNone(decode_keypoints(five))
+        self.assertEqual(decode_keypoints(five, allow_legacy=True).shape, (5, 2))
+
+    def test_measurement_geometry_filters_head_down(self):
+        points = np.array([[10, 20], [90, 20], [5, 50]], dtype=float)
+        with self.assertRaisesRegex(ValueError, "head_down"):
+            measurement_geometry(points, head_drop_max_norm=0.2)
 
     def test_non_monotonic_keypoints_are_rejected(self):
         points = np.array([[10, 40], [30, 34], [25, 27], [70, 34], [90, 40]], dtype=float)

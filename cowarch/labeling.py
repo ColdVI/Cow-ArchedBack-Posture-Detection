@@ -20,7 +20,7 @@ from .annotations import (
     POSTURE_LABELS,
     ensure_annotation_columns,
 )
-from .geometry import DORSAL_KEYPOINTS, keypoint_features
+from .geometry import DORSAL_KEYPOINTS, LEGACY_DORSAL_KEYPOINTS, keypoint_features
 from .io import as_bool, atomic_write_csv, read_manifest, resolve_data_path
 
 # Kept as an alias for callers which imported the old module-level constant.
@@ -28,6 +28,7 @@ EDITABLE_COLUMNS = ANNOTATION_COLUMNS
 GEOMETRY_MODES = {
     "keypoints": DORSAL_KEYPOINTS,
     "anchors": ("withers", "sacrum"),
+    "legacy_keypoints": LEGACY_DORSAL_KEYPOINTS,
 }
 
 
@@ -42,6 +43,10 @@ def _require_widgets():
 def live_sagitta(points: np.ndarray) -> float | None:
     """Compatibility helper for old callers; the annotation UIs do not call it."""
     p = np.asarray(points, dtype=float)
+    if p.shape == (3, 2):
+        # In the production protocol the third point is the head, not an
+        # intermediate dorsal point. Sagitta must come from the dense mask.
+        return None
     if p.shape[0] < 3:
         return None
     baseline = p[-1] - p[0]
@@ -222,7 +227,7 @@ class PostureLabeler:
 
 
 class DorsalGeometryLabeler:
-    """Pass B: capture five dorsal points or two anchors after posture labeling.
+    """Pass B: capture three production points after posture labeling.
 
     This class has no posture controls and never assigns to ``label`` or
     ``posture_reviewed_by``. Its queue contains only accepted rows whose Pass A
@@ -240,9 +245,14 @@ class DorsalGeometryLabeler:
         max_samples: int | None = None,
         relabel: bool = False,
         figsize: tuple[float, float] = (9.0, 5.5),
+        allow_legacy_keypoints: bool = False,
     ) -> None:
         if mode not in GEOMETRY_MODES:
-            raise ValueError("mode must be 'keypoints' or 'anchors'")
+            raise ValueError("unsupported geometry mode")
+        if mode == "legacy_keypoints" and not allow_legacy_keypoints:
+            raise ValueError(
+                "legacy_keypoints requires allow_legacy_keypoints=True"
+            )
         if order not in {"random", "sequential"}:
             raise ValueError("geometry order must be random or sequential")
         if not str(reviewer).strip():
@@ -254,7 +264,9 @@ class DorsalGeometryLabeler:
         self.reviewer = str(reviewer).strip()
         self.mode = mode
         self.point_names = GEOMETRY_MODES[mode]
-        self.storage_column = "keypoints_json" if mode == "keypoints" else "anchors_json"
+        self.storage_column = (
+            "keypoints_json" if mode in {"keypoints", "legacy_keypoints"} else "anchors_json"
+        )
         self.figsize = figsize
 
         accepted = as_bool(self.frame["accepted"]).to_numpy()
@@ -366,7 +378,7 @@ class DorsalGeometryLabeler:
 
         points = np.asarray(self.points, dtype=float)
         features = None
-        if self.mode == "keypoints":
+        if self.mode == "legacy_keypoints":
             try:
                 features = keypoint_features(points)
             except ValueError as exc:
@@ -447,9 +459,10 @@ class DorsalGeometryLabeler:
                     textcoords="offset points",
                 )
             if len(self.points) == len(self.point_names):
+                endpoint_index = -1 if self.mode == "legacy_keypoints" else 1
                 self.axis.plot(
-                    [points[0, 0], points[-1, 0]],
-                    [points[0, 1], points[-1, 1]],
+                    [points[0, 0], points[endpoint_index, 0]],
+                    [points[0, 1], points[endpoint_index, 1]],
                     color="white",
                     linestyle="--",
                     linewidth=1.2,

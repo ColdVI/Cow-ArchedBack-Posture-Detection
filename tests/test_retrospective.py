@@ -2,7 +2,11 @@ import unittest
 
 import pandas as pd
 
-from cowarch.retrospective import normalize_treatments, validate_retrospective
+from cowarch.retrospective import (
+    normalize_treatments,
+    validate_absolute_scores,
+    validate_retrospective,
+)
 
 
 class RetrospectiveTests(unittest.TestCase):
@@ -48,6 +52,39 @@ class RetrospectiveTests(unittest.TestCase):
         metrics, latency, _ = validate_retrospective(signals, treatments)
         self.assertFalse(latency.loc[0, "detected"])
         self.assertEqual(metrics["n_detected_observed_events"], 0)
+
+    def test_absolute_score_correlation_excludes_routine_and_peripartum(self):
+        passages = pd.DataFrame(
+            {
+                "passage_id": ["p1", "p2", "p3", "p4", "p5"],
+                "cow_id": ["a", "a", "b", "b", "c"],
+                "timestamp_utc": [
+                    "2026-01-01T00:00:00Z",
+                    "2026-01-08T00:00:00Z",
+                    "2026-01-01T00:00:00Z",
+                    "2026-01-08T00:00:00Z",
+                    "2026-01-08T00:00:00Z",
+                ],
+                "sagitta_median": [0.8, 0.9, 0.1, 0.2, 0.95],
+                "score_eligible": [True] * 5,
+            }
+        )
+        treatments = pd.DataFrame(
+            {
+                "date": ["2026-01-10", "2026-01-10"],
+                "cow_id": ["a", "b"],
+                "trigger": ["observed", "routine"],
+            }
+        )
+        calvings = pd.DataFrame({"date": ["2026-01-08"], "cow_id": ["c"]})
+        metrics, labeled, normalized = validate_absolute_scores(
+            passages, treatments, calvings, event_horizon_days=14
+        )
+        self.assertGreater(metrics["absolute_score_treatment_spearman"], 0.8)
+        self.assertEqual(metrics["n_passages_peripartum_suppressed"], 1)
+        self.assertEqual(metrics["n_observed_treatment_events"], 1)
+        self.assertEqual(normalized["trigger"].tolist(), ["observed", "routine"])
+        self.assertTrue(labeled.loc[labeled["cow_id"].eq("c"), "peripartum_suppressed"].all())
 
 
 if __name__ == "__main__":

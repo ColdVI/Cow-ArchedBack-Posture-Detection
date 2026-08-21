@@ -132,7 +132,7 @@ class LabelStudioBridgeTests(unittest.TestCase):
             make_manifest(manifest, data_root)
             export = root / "export.json"
             output = root / "merged.csv"
-            names = ["sacrum", "lumbar", "thoracolumbar", "thoracic", "withers"]
+            names = ["head", "sacrum", "withers"]
             results = []
             for index, name in enumerate(names):
                 results.append(
@@ -168,7 +168,7 @@ class LabelStudioBridgeTests(unittest.TestCase):
             row = merged.loc[merged["sample_id"].eq("geometry")].iloc[0]
             points = json.loads(row["keypoints_json"])
 
-        self.assertEqual(points, [[20.0, 40.0], [40.0, 35.0], [60.0, 30.0], [80.0, 25.0], [100.0, 20.0]])
+        self.assertEqual(points, [[60.0, 30.0], [80.0, 25.0], [100.0, 20.0]])
         self.assertEqual(row["label"], "arched")
         self.assertEqual(row["geometry_reviewed_by"], "geometry-r")
 

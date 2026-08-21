@@ -28,6 +28,8 @@ class VarianceTests(unittest.TestCase):
         summary, per_cow, measurements = variance_study(passages(), {"arched1"})
         self.assertEqual(summary["decision"], "GO")
         self.assertGreaterEqual(summary["delta_over_sigma_within_cow"], 2.0)
+        self.assertGreaterEqual(summary["delta_over_sigma_between_healthy"], 2.0)
+        self.assertGreater(summary["sigma_between_healthy"], 0)
         self.assertEqual(len(per_cow), 3)
         self.assertEqual(len(measurements), 18)
 

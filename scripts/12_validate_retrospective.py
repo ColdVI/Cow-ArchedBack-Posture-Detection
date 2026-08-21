@@ -12,7 +12,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from cowarch.io import atomic_write_csv
-from cowarch.retrospective import validate_retrospective
+from cowarch.retrospective import validate_absolute_scores
 
 
 def json_safe(value):
@@ -29,62 +29,62 @@ def fmt(value) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Validate daily posture-change signals against treatment records."
+        description="Validate absolute passage sagitta against treatment records."
     )
-    parser.add_argument("--daily-signals", required=True, type=Path)
+    parser.add_argument("--passages", required=True, type=Path)
     parser.add_argument("--treatments", required=True, type=Path)
-    parser.add_argument("--calvings", type=Path)
+    parser.add_argument("--calvings", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--routine-count-threshold", type=int, default=5)
-    parser.add_argument("--lookback-days", type=int, default=30)
-    parser.add_argument("--min-persistent-days", type=int, default=2)
-    parser.add_argument("--alert-match-days", type=int, default=30)
+    parser.add_argument("--event-horizon-days", type=int, default=30)
+    parser.add_argument("--peripartum-days-before", type=int, default=7)
+    parser.add_argument("--peripartum-days-after", type=int, default=21)
+    parser.add_argument("--score-column", default="sagitta_median")
     args = parser.parse_args()
 
-    signals = pd.read_csv(args.daily_signals, keep_default_na=False)
+    passages = pd.read_csv(args.passages, keep_default_na=False)
     treatments = pd.read_csv(args.treatments, keep_default_na=False)
-    calving_count = 0
-    if args.calvings:
-        calvings = pd.read_csv(args.calvings, keep_default_na=False)
-        if missing := sorted({"cow_id", "date"} - set(calvings.columns)):
-            raise ValueError(f"Calvings table is missing columns: {missing}")
-        calving_count = len(calvings)
-    metrics, latency, normalized = validate_retrospective(
-        signals,
+    calvings = pd.read_csv(args.calvings, keep_default_na=False)
+    metrics, scored_passages, normalized = validate_absolute_scores(
+        passages,
         treatments,
+        calvings,
+        score_column=args.score_column,
         routine_count_threshold=args.routine_count_threshold,
-        lookback_days=args.lookback_days,
-        min_persistent_days=args.min_persistent_days,
-        alert_match_days=args.alert_match_days,
+        event_horizon_days=args.event_horizon_days,
+        peripartum_days_before=args.peripartum_days_before,
+        peripartum_days_after=args.peripartum_days_after,
     )
-    metrics["n_calving_records_supplied"] = calving_count
+    metrics["n_calving_records_supplied"] = len(calvings)
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    atomic_write_csv(latency, args.output_dir / "detection_latency.csv")
+    atomic_write_csv(scored_passages, args.output_dir / "passages_with_treatment_outcome.csv")
     atomic_write_csv(normalized, args.output_dir / "treatments_normalized.csv")
     with (args.output_dir / "metrics.json").open("w", encoding="utf-8") as handle:
         json.dump({key: json_safe(value) for key, value in metrics.items()}, handle, indent=2)
 
-    lower = metrics["measured_precision_lower_bound"]
-    lower_text = "—" if not math.isfinite(lower) else f"en az %{100 * lower:.1f}"
     lines = [
-        "# Retrospektif Duruş Anomalisi Triyaj Validasyonu",
+        "# Retrospektif Mutlak Duruş Skoru Validasyonu",
         "",
-        "> Bu rapor arched-back posture değişim sinyalini değerlendirir; topallık veya hastalık teşhisi değildir.",
+        "> Bu rapor mutlak arched-back posture skorunun tedavi kayıtlarıyla ilişkisini değerlendirir; topallık veya hastalık teşhisi değildir.",
         "",
         "| Metrik | Değer |",
         "|---|---:|",
+        f"| Analiz edilen geçiş | {metrics['n_passages_analyzed']} |",
+        f"| Peripartum bastırılan geçiş | {metrics['n_passages_peripartum_suppressed']} |",
         f"| Gözlem üzerine tedavi olayı | {metrics['n_observed_treatment_events']} |",
-        f"| Önceden kalıcı sinyal bulunan olay | {metrics['n_detected_observed_events']} |",
-        f"| Medyan detection latency (gün) | {fmt(metrics['median_detection_latency_days'])} |",
-        f"| Tedavi görmemiş ineklerde aylık yanlış alarm | {fmt(metrics['false_alerts_per_cow_month'])} |",
-        f"| Ölçülen precision alt sınırı | {lower_text} |",
+        f"| Öncesinde skor bulunan olay | {metrics['n_observed_events_with_preceding_score']} |",
+        f"| `{metrics['score_column']}`–tedavi Pearson korelasyonu | {fmt(metrics['absolute_score_treatment_pearson'])} |",
+        f"| `{metrics['score_column']}`–tedavi Spearman korelasyonu | {fmt(metrics['absolute_score_treatment_spearman'])} |",
+        f"| Tedavi öncesi medyan skor | {fmt(metrics['median_score_before_observed_treatment'])} |",
+        f"| Tedavisiz ufukta medyan skor | {fmt(metrics['median_score_without_observed_treatment'])} |",
         "",
         "## Yorum sınırları",
         "",
-        "- Kayıt tarihi gerçek başlangıçtan geçse, 'kaç gün erken' değeri olduğundan büyük görünebilir.",
-        "- Fark edilmemiş olaylar negatif havuzda kaldığı için ölçülen precision aşağı yönlü sapar; bu nedenle sonuç alt sınır diliyle verilir.",
+        "- Korelasyon nedensellik veya tanı performansı değildir; yalnız kayıtlarla eşzamanlı ilişkiyi ölçer.",
+        "- Fark edilmemiş vakalar karşılaştırma havuzunda kalabilir ve korelasyonu aşağı çekebilir.",
         "- `trigger` eksik kayıtlar aynı gün işlem gören inek sayısından yaklaşık üretilmiştir; bugünden itibaren `routine/observed` alanı doğrudan tutulmalıdır.",
-        "- Binary accuracy kasıtlı olarak raporlanmamıştır.",
+        "- Routine işlemler pozitif olay sayılmamış, buzağılama çevresindeki geçişler bastırılmıştır.",
+        "- T5 ertelendiği için detection latency ve aylık yanlış alarm kasıtlı olarak raporlanmamıştır.",
     ]
     (args.output_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"wrote retrospective validation to {args.output_dir}")

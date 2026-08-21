@@ -111,7 +111,7 @@ class LabelingTests(unittest.TestCase):
                 )
             labeler.status = SimpleNamespace(value="")
             labeler._advance = Mock()
-            labeler.points = [(0, 10), (2, 8), (4, 7), (6, 8), (8, 10)]
+            labeler.points = [(0, 10), (8, 10), (1, 12)]
             labeler._on_save()
 
             saved = pd.read_csv(path, keep_default_na=False)
@@ -122,8 +122,18 @@ class LabelingTests(unittest.TestCase):
         self.assertEqual(row["posture_reviewed_by"], "legacy")
         self.assertEqual(row["geometry_reviewed_by"], "geometry-r")
         self.assertEqual(row["annotation_pass"], "geometry")
-        self.assertEqual(len(json.loads(row["keypoints_json"])), 5)
-        self.assertIsNotNone(labeler.last_saved_features)
+        self.assertEqual(len(json.loads(row["keypoints_json"])), 3)
+        self.assertIsNone(labeler.last_saved_features)
+
+    def test_legacy_five_point_mode_requires_explicit_opt_in(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "manifest.csv"
+            make_manifest(path)
+            with patch.object(DorsalGeometryLabeler, "_build_ui"):
+                with self.assertRaisesRegex(ValueError, "allow_legacy_keypoints"):
+                    DorsalGeometryLabeler(
+                        path, "train", "geometry-r", mode="legacy_keypoints"
+                    )
 
     def test_anchor_mode_saves_two_points_without_changing_posture(self):
         with tempfile.TemporaryDirectory() as directory:

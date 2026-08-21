@@ -6,13 +6,26 @@ from typing import Any, Iterable
 import numpy as np
 
 
-DORSAL_KEYPOINTS = (
+MEASUREMENT_KEYPOINTS = (
+    "withers",
+    "sacrum",
+    "head",
+)
+
+# The five-point geometry path is retained only for reproducibility of the
+# original supervised PoC.  New measurement annotations use
+# ``MEASUREMENT_KEYPOINTS``.
+LEGACY_DORSAL_KEYPOINTS = (
     "withers",
     "thoracic",
     "thoracolumbar",
     "lumbar",
     "sacrum",
 )
+
+# Public compatibility name used by the annotation frontends.  In v3 it means
+# the production three-point protocol, not the historical five-point curve.
+DORSAL_KEYPOINTS = MEASUREMENT_KEYPOINTS
 
 
 def extract_topline(
@@ -314,7 +327,13 @@ def anchored_topline_features(
     }
 
 
-def decode_keypoints(value: Any) -> np.ndarray | None:
+def decode_keypoints(value: Any, *, allow_legacy: bool = False) -> np.ndarray | None:
+    """Decode the production three-point protocol.
+
+    Five-point annotations are accepted only when ``allow_legacy=True``.  This
+    makes legacy supervised experiments explicit while keeping new measurement
+    code on ``withers, sacrum, head``.
+    """
     if value is None:
         return None
     if isinstance(value, float) and np.isnan(value):
@@ -325,28 +344,55 @@ def decode_keypoints(value: Any) -> np.ndarray | None:
             return None
         value = json.loads(value)
 
+    names = LEGACY_DORSAL_KEYPOINTS if allow_legacy else MEASUREMENT_KEYPOINTS
     if isinstance(value, dict):
-        if not all(name in value for name in DORSAL_KEYPOINTS):
+        if not all(name in value for name in names):
             return None
-        points = [[value[name]["x"], value[name]["y"]] for name in DORSAL_KEYPOINTS]
+        points = [[value[name]["x"], value[name]["y"]] for name in names]
     elif isinstance(value, Iterable):
         rows = list(value)
-        if len(rows) != len(DORSAL_KEYPOINTS):
+        if len(rows) != len(names):
             return None
         if rows and isinstance(rows[0], dict):
             by_name = {row.get("name"): row for row in rows}
-            if not all(name in by_name for name in DORSAL_KEYPOINTS):
+            if not all(name in by_name for name in names):
                 return None
-            points = [[by_name[name]["x"], by_name[name]["y"]] for name in DORSAL_KEYPOINTS]
+            points = [[by_name[name]["x"], by_name[name]["y"]] for name in names]
         else:
             points = rows
     else:
         return None
 
     arr = np.asarray(points, dtype=float)
-    if arr.shape != (5, 2) or not np.all(np.isfinite(arr)):
+    if arr.shape != (len(names), 2) or not np.all(np.isfinite(arr)):
         return None
     return arr
+
+
+def measurement_geometry(
+    points: np.ndarray,
+    *,
+    head_drop_max_norm: float,
+) -> tuple[np.ndarray, float]:
+    """Return withers/sacrum anchors and normalized head drop.
+
+    Image ``y`` grows downwards, so positive head drop means that the head is
+    below the withers.  Frames beyond the configured limit are rejected before
+    sagitta aggregation.
+    """
+    p = np.asarray(points, dtype=float)
+    if p.shape != (3, 2) or not np.all(np.isfinite(p)):
+        raise ValueError("three finite points ordered as withers, sacrum, head are required")
+    if not np.isfinite(head_drop_max_norm) or head_drop_max_norm < 0:
+        raise ValueError("head_drop_max_norm must be a finite non-negative value")
+    anchors = p[:2]
+    chord_length = float(np.linalg.norm(anchors[1] - anchors[0]))
+    if chord_length <= 1e-6:
+        raise ValueError("withers and sacrum cannot coincide")
+    head_drop = float((p[2, 1] - p[0, 1]) / chord_length)
+    if head_drop > head_drop_max_norm:
+        raise ValueError("head_down")
+    return anchors, head_drop
 
 
 def keypoint_features(points: np.ndarray) -> dict[str, float]:
@@ -359,7 +405,9 @@ def keypoint_features(points: np.ndarray) -> dict[str, float]:
     """
     p = np.asarray(points, dtype=float)
     if p.shape != (5, 2) or not np.all(np.isfinite(p)):
-        raise ValueError("five finite 2-D dorsal points are required")
+        raise ValueError(
+            "five finite legacy dorsal points are required; this path is not the v3 protocol"
+        )
 
     if float(np.linalg.norm(p[-1] - p[0])) <= 1e-6:
         raise ValueError("withers and sacrum cannot coincide")

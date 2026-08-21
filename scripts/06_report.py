@@ -19,7 +19,12 @@ from sklearn.metrics import ConfusionMatrixDisplay, PrecisionRecallDisplay, RocC
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from cowarch.geometry import DORSAL_KEYPOINTS, decode_keypoints, keypoint_features
+from cowarch.geometry import (
+    DORSAL_KEYPOINTS,
+    LEGACY_DORSAL_KEYPOINTS,
+    decode_keypoints,
+    keypoint_features,
+)
 from cowarch.io import as_bool, read_manifest, resolve_data_path
 from cowarch.modeling import (
     aggregate_group_predictions,
@@ -193,12 +198,16 @@ def save_curves(predictions: pd.DataFrame, model: str, figures: Path) -> None:
     plt.close(fig)
 
 
-def save_geometry_histogram(manifest: pd.DataFrame, figures: Path) -> str | None:
+def save_geometry_histogram(
+    manifest: pd.DataFrame, figures: Path, *, allow_legacy_keypoints: bool
+) -> str | None:
+    if not allow_legacy_keypoints:
+        return None
     rows = []
     for _, row in manifest.iterrows():
         if row.get("label", "") not in {"normal", "arched"}:
             continue
-        points = decode_keypoints(row.get("keypoints_json", ""))
+        points = decode_keypoints(row.get("keypoints_json", ""), allow_legacy=True)
         if points is None:
             continue
         try:
@@ -224,6 +233,7 @@ def save_keypoint_overlays(
     manifest_path: Path,
     figures: Path,
     limit: int = 12,
+    allow_legacy_keypoints: bool = False,
 ) -> list[str]:
     overlay_dir = figures / "keypoint_overlays"
     overlay_dir.mkdir(parents=True, exist_ok=True)
@@ -232,7 +242,9 @@ def save_keypoint_overlays(
         return []
     eligible = manifest[manifest["keypoints_json"].astype(str).str.len() > 2]
     for _, row in eligible.head(limit).iterrows():
-        points = decode_keypoints(row.get("keypoints_json", ""))
+        points = decode_keypoints(
+            row.get("keypoints_json", ""), allow_legacy=allow_legacy_keypoints
+        )
         if points is None:
             continue
         path = resolve_data_path(str(row["crop_path"]), manifest_path)
@@ -241,9 +253,11 @@ def save_keypoint_overlays(
         with Image.open(path) as source:
             image = source.convert("RGB")
         draw = ImageDraw.Draw(image)
-        draw.line([tuple(point) for point in points], fill=(255, 215, 0), width=max(2, image.width // 250))
+        line_points = points if len(points) == 5 else points[:2]
+        draw.line([tuple(point) for point in line_points], fill=(255, 215, 0), width=max(2, image.width // 250))
         radius = max(4, image.width // 160)
-        for index, (name, point) in enumerate(zip(DORSAL_KEYPOINTS, points), start=1):
+        point_names = LEGACY_DORSAL_KEYPOINTS if len(points) == 5 else DORSAL_KEYPOINTS
+        for index, (name, point) in enumerate(zip(point_names, points), start=1):
             x, y = float(point[0]), float(point[1])
             draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=(255, 80, 40))
             draw.text((x + radius + 2, y - radius), f"{index}:{name}", fill=(255, 255, 255))
@@ -275,6 +289,12 @@ def main() -> None:
     )
     parser.add_argument("--bootstrap-samples", type=int, default=2000)
     parser.add_argument("--bootstrap-seed", type=int, default=42)
+    parser.add_argument("--herd-prevalence", type=float, default=0.02)
+    parser.add_argument(
+        "--allow-legacy-keypoints",
+        action="store_true",
+        help="Render the historical five-point supervised geometry outputs.",
+    )
     args = parser.parse_args()
 
     with (args.run_dir / "metrics.json").open(encoding="utf-8") as handle:
@@ -302,8 +322,15 @@ def main() -> None:
     figures.mkdir(parents=True, exist_ok=True)
     for model in metrics:
         save_curves(predictions, model, figures)
-    histogram = save_geometry_histogram(manifest.loc[accepted], figures)
-    overlays = save_keypoint_overlays(manifest.loc[accepted], args.manifest, figures)
+    histogram = save_geometry_histogram(
+        manifest.loc[accepted], figures, allow_legacy_keypoints=args.allow_legacy_keypoints
+    )
+    overlays = save_keypoint_overlays(
+        manifest.loc[accepted],
+        args.manifest,
+        figures,
+        allow_legacy_keypoints=args.allow_legacy_keypoints,
+    )
 
     test_predictions = predictions[predictions["split"] == "test"].copy()
     test_predictions["error"] = test_predictions["label"] != test_predictions["prediction"]
@@ -330,7 +357,7 @@ def main() -> None:
         "",
         "Frame metrics are retained for error analysis, but their confidence intervals resample whole groups.",
         "",
-        "| Model | Frames | Groups | PR-AUC | Cluster 95% CI | ROC-AUC | Recall | Specificity | Precision | Expected PPV @ 2% | F1 | Balanced accuracy |",
+        f"| Model | Frames | Groups | PR-AUC | Cluster 95% CI | ROC-AUC | Recall | Specificity | Precision | Expected PPV @ {100 * args.herd_prevalence:g}% | F1 | Balanced accuracy |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for model in metrics:
@@ -341,7 +368,7 @@ def main() -> None:
             f"{safe_interval(interval)} | {safe_float(test['roc_auc'])} | "
             f"{safe_float(test['sensitivity_recall'])} | {safe_float(test['specificity'])} | "
             f"{safe_float(test['precision'])} | "
-            f"{safe_float(expected_ppv(test['sensitivity_recall'], test['specificity']))} | "
+            f"{safe_float(expected_ppv(test['sensitivity_recall'], test['specificity'], args.herd_prevalence))} | "
             f"{safe_float(test['f1'])} | "
             f"{safe_float(test['balanced_accuracy'])} |"
         )
@@ -351,7 +378,7 @@ def main() -> None:
         "",
         f"Each group contributes one `{args.aggregation}` probability and must have exactly one ground-truth label.",
         "",
-        "| Model | Groups | Frames | PR-AUC | Cluster 95% CI | ROC-AUC | Recall | Specificity | Precision | Expected PPV @ 2% | F1 | Balanced accuracy |",
+        f"| Model | Groups | Frames | PR-AUC | Cluster 95% CI | ROC-AUC | Recall | Specificity | Precision | Expected PPV @ {100 * args.herd_prevalence:g}% | F1 | Balanced accuracy |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for model in metrics:
@@ -362,7 +389,7 @@ def main() -> None:
             f"{safe_interval(interval)} | {safe_float(test['roc_auc'])} | "
             f"{safe_float(test['sensitivity_recall'])} | {safe_float(test['specificity'])} | "
             f"{safe_float(test['precision'])} | "
-            f"{safe_float(expected_ppv(test['sensitivity_recall'], test['specificity']))} | "
+            f"{safe_float(expected_ppv(test['sensitivity_recall'], test['specificity'], args.herd_prevalence))} | "
             f"{safe_float(test['f1'])} | "
             f"{safe_float(test['balanced_accuracy'])} |"
         )
@@ -370,7 +397,7 @@ def main() -> None:
         "",
         "Expected PPV is recalculated as `prevalence × sensitivity / "
         "(prevalence × sensitivity + (1 − prevalence) × (1 − specificity))`; "
-        "it is not the test-set precision.",
+        f"here prevalence is `{args.herd_prevalence:.6g}`. It is not the test-set precision.",
         "",
         "## Preparation quality slices",
         "",

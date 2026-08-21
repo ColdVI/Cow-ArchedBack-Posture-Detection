@@ -16,11 +16,15 @@ from cowarch.geometry import decode_keypoints, keypoint_features
 from cowarch.io import as_bool, atomic_write_csv, read_manifest, resolve_data_path
 
 
-def geometry_matrix(frame: pd.DataFrame, names: list[str]) -> np.ndarray:
+def geometry_matrix(
+    frame: pd.DataFrame, names: list[str], *, allow_legacy_keypoints: bool
+) -> np.ndarray:
     rows = []
     for _, row in frame.iterrows():
         if names and names[0].startswith("kp_"):
-            points = decode_keypoints(row.get("keypoints_json", ""))
+            points = decode_keypoints(
+                row.get("keypoints_json", ""), allow_legacy=allow_legacy_keypoints
+            )
             if points is None:
                 rows.append([np.nan] * len(names))
                 continue
@@ -41,6 +45,7 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--device", default="auto")
+    parser.add_argument("--allow-legacy-keypoints", action="store_true")
     args = parser.parse_args()
 
     # Load only model bundles created by this project; joblib/pickle is not safe for untrusted files.
@@ -57,7 +62,14 @@ def main() -> None:
     valid = np.ones(len(frame), dtype=bool)
 
     if geometry_names:
-        geometry = geometry_matrix(frame, geometry_names)
+        if any(name.startswith("kp_") for name in geometry_names) and not args.allow_legacy_keypoints:
+            raise ValueError(
+                "This saved model uses the historical five-point path; pass "
+                "--allow-legacy-keypoints explicitly to run it."
+            )
+        geometry = geometry_matrix(
+            frame, geometry_names, allow_legacy_keypoints=args.allow_legacy_keypoints
+        )
         valid &= np.isfinite(geometry).all(axis=1)
         blocks.append(geometry)
     if embedding_names:
@@ -106,4 +118,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

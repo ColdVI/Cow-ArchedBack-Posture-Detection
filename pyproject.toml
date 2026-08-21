@@ -4,10 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cow-arch-poc"
-version = "0.1.0"
-description = "Literature-grounded arched-back posture detection PoC for cattle"
+version = "0.3.0"
+description = "Absolute arched-back posture scoring and calibration pipeline for cattle"
 requires-python = ">=3.11,<3.14"
 
 [tool.setuptools]
 packages = ["cowarch"]
-

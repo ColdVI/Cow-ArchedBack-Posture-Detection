@@ -68,7 +68,8 @@ veya yeniden dağıtım izni anlamına gelmez.
 - Label set: `arched`, `normal`, `uncertain`, `invalid`.
 - Posture protocol: [ANNOTATION_GUIDE sürümü ve sapmalar].
 - Posture labeler'lar: [anonim reviewer ID, eğitim/uzmanlık, session tarihleri].
-- Geometry protocol: [five keypoints / two anchors].
+- Geometry protocol: production `withers, sacrum, head`; any five-point data is
+  explicitly marked legacy.
 - Geometry labeler'lar: [anonim reviewer ID ve session tarihleri].
 - Manifest alanları: `posture_reviewed_by`, `geometry_reviewed_by`,
   `annotation_pass`; legacy `reviewed_by` kullanıldıysa migration açıklaması.

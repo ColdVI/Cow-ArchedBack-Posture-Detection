@@ -38,10 +38,10 @@ AUTO_FEATURES = [
 ]
 
 
-def add_keypoint_features(frame: pd.DataFrame) -> pd.DataFrame:
+def add_keypoint_features(frame: pd.DataFrame, *, allow_legacy_keypoints: bool) -> pd.DataFrame:
     rows = []
     for value in frame.get("keypoints_json", pd.Series("", index=frame.index)):
-        points = decode_keypoints(value)
+        points = decode_keypoints(value, allow_legacy=allow_legacy_keypoints)
         if points is None:
             rows.append({name: np.nan for name in KEYPOINT_FEATURES})
             continue
@@ -179,6 +179,7 @@ def main() -> None:
         default=["geometry", "embedding", "fusion"],
     )
     parser.add_argument("--allow-auto-geometry", action="store_true")
+    parser.add_argument("--allow-legacy-keypoints", action="store_true")
     parser.add_argument("--group-column", default="cow_id")
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--device", default="auto")
@@ -198,7 +199,9 @@ def main() -> None:
         raise ValueError("Every training row must have train/val/test split")
     assert_no_group_leakage(frame, args.group_column)
     frame["target"] = frame["label"].map({"normal": 0, "arched": 1}).astype(int)
-    frame = add_keypoint_features(frame)
+    frame = add_keypoint_features(
+        frame, allow_legacy_keypoints=args.allow_legacy_keypoints
+    )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     embedding_needed = any(name in args.models for name in ["embedding", "fusion"])
@@ -216,7 +219,7 @@ def main() -> None:
     geometry_source = None
     geometry_features: list[str] = []
     geometry_matrix = None
-    if keypoint_mask.any() and has_split_classes(frame, keypoint_mask):
+    if args.allow_legacy_keypoints and keypoint_mask.any() and has_split_classes(frame, keypoint_mask):
         geometry_source = "five_dorsal_keypoints"
         geometry_features = KEYPOINT_FEATURES
         geometry_matrix = frame[geometry_features].to_numpy(dtype=np.float32)
@@ -239,7 +242,8 @@ def main() -> None:
         raise ValueError(
             "Geometry/fusion requested but complete five-keypoint rows with both classes "
             "in every split do not exist. "
-            "Annotate keypoints or explicitly pass --allow-auto-geometry."
+            "For historical runs pass --allow-legacy-keypoints, or explicitly "
+            "pass --allow-auto-geometry. Neither path is the v3 absolute-score pipeline."
         )
 
     all_metrics = {}

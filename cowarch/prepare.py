@@ -6,16 +6,18 @@ what the batch backend would have written without producing any files.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
 from .detect import bbox_crop, predict_cows, resize_mask
+from .anchors import anchor_array, predict_anchors
 from .frames import dhash, hamming_distance, require_cv2, safe_token
-from .geometry import auto_topline_features
+from .geometry import anchored_topline_features, auto_topline_features, measurement_geometry
 
-PIPELINE_VERSION = "longitudinal-v1"
+PIPELINE_VERSION = "absolute-score-v3"
 
 REJECT_REASONS = (
     "no_cow",
@@ -57,6 +59,9 @@ class PrepareConfig:
     hard_side_filter: bool = False
     reject_border: bool = False
     dedup_hamming: int = 4
+    anchor_confidence: float = 0.5
+    head_drop_max_norm: float = 0.30
+    center_band_fraction: float = 0.50
 
     def as_dict(self) -> dict:
         return {
@@ -68,6 +73,9 @@ class PrepareConfig:
             "hard_side_filter": self.hard_side_filter,
             "reject_border": self.reject_border,
             "dedup_hamming": self.dedup_hamming,
+            "anchor_confidence": self.anchor_confidence,
+            "head_drop_max_norm": self.head_drop_max_norm,
+            "center_band_fraction": self.center_band_fraction,
         }
 
 
@@ -108,6 +116,7 @@ def blank_record(source_id: str, video_id: str, frame_idx: int, original_name: s
         "label": "",
         "keypoints_json": "",
         "anchors_json": "",
+        "predicted_keypoints_json": "",
         "reviewed_by": "",
         "posture_reviewed_by": "",
         "geometry_reviewed_by": "",
@@ -117,10 +126,17 @@ def blank_record(source_id: str, video_id: str, frame_idx: int, original_name: s
         "passage_id": "",
         "timestamp_utc": "",
         "camera_id": "",
+        "camera_role": "",
         "is_ir": False,
         "mask_component_count": 0,
         "body_length_px": np.nan,
         "pipeline_version": PIPELINE_VERSION,
+        "measurement_accepted": False,
+        "measurement_reject_reason": "not_measured",
+        "center_band_eligible": False,
+        "center_band_fraction": np.nan,
+        "camera_mitigation": "none",
+        "undistortion_applied": False,
     }
 
 
@@ -179,6 +195,7 @@ def process_frame(
     last_hash: int | None = None,
     detection_index: int | None = None,
     detections: list | None = None,
+    anchor_predictor=None,
 ) -> FrameOutcome:
     """Run detection, quality filters and silhouette geometry for one frame.
 
@@ -240,6 +257,15 @@ def process_frame(
             "view_hint": "side_candidate" if aspect_ratio >= config.side_aspect else "review_oblique",
         }
     )
+    if not 0 < config.center_band_fraction <= 1:
+        raise ValueError("center_band_fraction must be in (0, 1]")
+    band_half_width = frame_width * config.center_band_fraction / 2.0
+    box_center_x = (x1 + x2) / 2.0
+    record["center_band_eligible"] = bool(
+        frame_width / 2.0 - band_half_width
+        <= box_center_x
+        <= frame_width / 2.0 + band_half_width
+    )
 
     if detector is not None and not config.min_area_ratio <= bbox_area_ratio <= config.max_area_ratio:
         record["reject_reason"] = "bbox_area"
@@ -269,7 +295,37 @@ def process_frame(
         record.update(auto_topline_features(crop_mask))
         if record["mask_component_count"] > 1:
             record["reject_reason"] = "fragmented_mask"
+            record["measurement_reject_reason"] = "fragmented_mask"
             return outcome
+
+        if not record["center_band_eligible"]:
+            record["measurement_reject_reason"] = "outside_center_band"
+        elif anchor_predictor is None:
+            record["measurement_reject_reason"] = "missing_anchor_model"
+        else:
+            prediction = predict_anchors(crop, anchor_predictor)
+            points = anchor_array(prediction, min_confidence=config.anchor_confidence)
+            if prediction is not None:
+                record["predicted_keypoints_json"] = json.dumps(
+                    prediction, sort_keys=True, separators=(",", ":")
+                )
+            if points is None:
+                record["measurement_reject_reason"] = "low_anchor_confidence"
+            else:
+                try:
+                    anchors, head_drop = measurement_geometry(
+                        points, head_drop_max_norm=config.head_drop_max_norm
+                    )
+                    record["head_drop_norm"] = head_drop
+                    record.update(anchored_topline_features(crop_mask, anchors))
+                except ValueError as exc:
+                    reason = str(exc)
+                    record["measurement_reject_reason"] = (
+                        "head_down" if reason == "head_down" else "invalid_anchored_geometry"
+                    )
+                else:
+                    record["measurement_accepted"] = True
+                    record["measurement_reject_reason"] = ""
     else:
         record.update(
             {
@@ -280,6 +336,7 @@ def process_frame(
                 "body_length_px": np.nan,
             }
         )
+        record["measurement_reject_reason"] = "missing_mask"
 
     hash_value = dhash(crop)
     outcome.hash_value = hash_value
@@ -305,6 +362,7 @@ def process_frame_all_cows(
     config: PrepareConfig,
     last_hash: int | None = None,
     overlap_iou_max: float = 0.3,
+    anchor_predictor=None,
 ) -> list[FrameOutcome]:
     """Crop every detected cow in a frame instead of rejecting the whole frame.
 
@@ -362,6 +420,7 @@ def process_frame_all_cows(
             last_hash=running_hash,
             detection_index=index,
             detections=detections,
+            anchor_predictor=anchor_predictor,
         )
         if outcome.accepted:
             running_hash = outcome.hash_value

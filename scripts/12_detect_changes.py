@@ -16,7 +16,12 @@ from cowarch.io import atomic_write_csv
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Build per-cow rolling baselines and capacity-calibrated change alerts."
+        description="DEFERRED T5: build per-cow baseline/CUSUM change alerts."
+    )
+    parser.add_argument(
+        "--enable-deferred-cusum",
+        action="store_true",
+        help="Explicitly opt into the v1-out-of-scope cow-specific path.",
     )
     parser.add_argument("--passages", required=True, type=Path)
     parser.add_argument("--variance-summary", required=True, type=Path)
@@ -26,19 +31,24 @@ def main() -> None:
     parser.add_argument("--daily-capacity", required=True, type=int)
     parser.add_argument("--min-history", type=int, default=10)
     parser.add_argument("--window-days", type=int, default=28)
-    parser.add_argument("--method", choices=["ewma", "cusum"], default="ewma")
+    parser.add_argument("--method", choices=["ewma", "cusum"], default="cusum")
     parser.add_argument("--ewma-alpha", type=float, default=0.3)
     parser.add_argument("--cusum-k", type=float, default=0.5)
     parser.add_argument("--peripartum-days-before", type=int, default=7)
     parser.add_argument("--peripartum-days-after", type=int, default=14)
     parser.add_argument("--calibration-end", default="")
     args = parser.parse_args()
+    if not args.enable_deferred_cusum:
+        raise ValueError(
+            "T5 baseline/CUSUM is deferred outside v1; pass --enable-deferred-cusum "
+            "only for an explicitly approved follow-up experiment."
+        )
 
     with args.variance_summary.open(encoding="utf-8") as handle:
         variance = json.load(handle)
     if variance.get("decision") != "GO":
         raise ValueError(
-            f"P3 is gated by a GO variance study; found {variance.get('decision')!r}"
+            f"Deferred T5 is gated by a GO variance study; found {variance.get('decision')!r}"
         )
     passages = pd.read_csv(args.passages, keep_default_na=False)
     calvings = pd.read_csv(args.calvings, keep_default_na=False) if args.calvings else None

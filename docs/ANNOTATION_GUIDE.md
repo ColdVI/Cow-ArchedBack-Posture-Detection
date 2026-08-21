@@ -85,12 +85,14 @@ olan örnekleri alır. Mümkün olduğunda mevcut posture etiketi annotator'a
 gösterilmez; arayüzde posture butonu bulunmaz ve `label` hiçbir zaman yeniden
 yazılmaz. Geometry reviewer ayrı `geometry_reviewed_by` alanına kaydedilir.
 
-Kampanya başında aşağıdaki modlardan biri seçilir ve kampanya içinde karıştırılmaz:
+Üretim protokolünde tam üç nokta tıklanır: `withers → sacrum → head`.
 
-- **Beş dorsal keypoint:** sırasıyla `withers → thoracic → thoracolumbar → lumbar
-  → sacrum` tıklanır.
-- **İki anatomik anchor:** sırasıyla `withers → sacrum` tıklanır. Bunlar, maske
-  mevcutsa anchor-bounded dense topline ölçümü için kullanılır.
+- `withers` ve `sacrum`, maske üzerindeki anchor-bounded dense topline ölçümünün
+  çapalarıdır.
+- `head` sagitta hesabına girmez; baş-aşağı karelerini ölçümden çıkarmak için
+  kullanılır.
+- Tarihsel beş dorsal keypoint yalnız açık `allow_legacy_keypoints` onayıyla eski
+  supervised deneyleri yeniden üretmek içindir; yeni kampanyada kullanılmaz.
 
 Noktalar crop koordinatındadır. Anatomik noktalar görünmüyorsa tahmin edilmez;
 örnek atlanır ve gerekçe kaydedilir. Withers ve sacrum aynı nokta olamaz. Sagitta
@@ -109,8 +111,9 @@ etiket gibi döngüsel kullanmayı ve reviewer alanlarının birbirine karışma
 ## Session kalite kontrolü
 
 - Reviewer kimliği, protokol sürümü ve session tarihi kaydedilir.
-- İlk session ve periyodik aralıklarda çift etiketlenmiş kalibrasyon örnekleriyle
-  anlaşmazlık oranı izlenir; anlaşmazlıklar orijinal kararların üzerine yazılmaz.
+- Yaklaşık 100–150 passage iki kişi tarafından bağımsız ordinal skorlanır;
+  quadratic weighted kappa raporlanır. Anlaşmazlıklar orijinal kararların üzerine
+  yazılmaz.
 - Etiket değişikliği gerekiyorsa kim, ne zaman ve neden değiştirdiği audit notuna
   eklenir.
 - Sınıf dağılımı, `uncertain`/`invalid` oranı ve nedenleri reviewer ve

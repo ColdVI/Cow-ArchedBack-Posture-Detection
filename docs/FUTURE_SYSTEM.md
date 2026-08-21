@@ -2,10 +2,10 @@
 
 > **Durum: future phase / mevcut PoC'de doğrulanmadı.** Bu belge bir araştırma
 > yönü taslağıdır; mevcut repoda uygulanmış veya sahada valide edilmiş özellikler
-> olarak okunmamalıdır. Repo artık deterministik passage agregasyonu, kişisel
-> baseline ve offline triyaj sinyali kodunu içerir; bunlar P2 kapısı ve saha
-> validasyonu geçmeden klinik kabiliyet sayılmaz. Sistem lameness/hastalık tanısı
-> üretmez.
+> olarak okunmamalıdır. Repo deterministik passage agregasyonu ile mutlak skor
+> kalibrasyon kodunu içerir. Kişisel baseline/CUSUM kodu korunmuş olsa da v1
+> dışında ertelenmiştir; hiçbir yol T4/T9 ve saha validasyonu geçmeden klinik
+> kabiliyet sayılmaz. Sistem lameness/hastalık tanısı üretmez.
 
 ## Future phase — Temporal BiLSTM/TCN (doğrulanmadı)
 

@@ -130,7 +130,7 @@ Bağlantılar:
 - **Livestock Keypoint Detection cattle alt kümesi** indirildi (888 görüntü,
   `data/external/Livestock-keypoint-detection/data_process/cattle/{A,B,C}`)
   ama `data/sources.csv`'ye bilerek eklenmedi: 18 noktalı keypoint şeması bu
-  projenin 5 noktalı dorsal protokolüyle uyuşmuyor ve görüntüler karışık
+  projenin üretim `withers/sacrum/head` protokolüyle doğrudan uyuşmuyor ve görüntüler karışık
   açılardan, önceden kırpılmış geliyor. Rolü yalnız pose-pretraining'dir.
 
 Sonuç olarak genel pose datasetleri yalnız transfer/pretraining rolündedir;
@@ -144,7 +144,8 @@ görüntüler üzerinde proje tarafından üretilir.
 - “Model, insan tarafından oluşturulmuş arched/normal posture etiketlerini
   ayırmak üzere değerlendirilmiştir.”
 - “Train/validation/test ayrımı video/kaynak grubu bazında yapılmıştır.”
-- “Anatomik geometri beş dorsal keypoint ile normalize edilmiştir.”
+- “Anatomik geometri withers–sacrum çapaları arasındaki yoğun maske profiliyle
+  normalize edilmiş, head keypoint yalnız kalite filtresi olarak kullanılmıştır.”
 - “Pretrained segmentation yalnız veri hazırlama/pre-annotation amacıyla
   kullanılmış, otomatik ground truth kabul edilmemiştir.”
 

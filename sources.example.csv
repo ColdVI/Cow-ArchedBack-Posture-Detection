@@ -1,5 +1,5 @@
-source_id,kind,url,local_path,license_status,license_name,license_url,farm_id,cow_id,video_id,passage_id,camera_id,start_timestamp_utc,is_ir,notes
-local_video_01,video,,data/raw/example.mp4,approved,company-owned footage,,farm_01,cow_001,video_01,passage_001,camera_01,2026-01-15T08:00:00Z,false,Side-view example video
-local_images_01,image_dir,,data/raw/side_view_images,approved,documented owner permission,,farm_01,,,,camera_01,,false,Directory of approved images
+source_id,kind,url,local_path,license_status,license_name,license_url,farm_id,cow_id,video_id,passage_id,camera_id,camera_role,start_timestamp_utc,is_ir,notes
+local_video_01,video,,data/raw/example.mp4,approved,company-owned footage,,farm_01,cow_001,video_01,passage_001,camera_01,measurement,2026-01-15T08:00:00Z,false,Side-view measurement video
+local_images_01,image_dir,,data/raw/side_view_images,approved,documented owner permission,,farm_01,,,,camera_02,passage_detection,,false,Directory of approved passage-detection images
 # youtube_01,youtube,https://www.youtube.com/watch?v=REPLACE_ME,,unresolved,,,,,video_web_01,,,,,Blocked until source-specific terms are documented
 # direct_01,direct,https://example.org/cow_video.mp4,,restricted,example restriction,https://example.org/terms,,,,,,,,Collector must reject this row

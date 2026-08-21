@@ -97,6 +97,53 @@ class PrepareTests(unittest.TestCase):
         self.assertEqual(outcome.reject_reason, "fragmented_mask")
         self.assertEqual(record["mask_component_count"], 2)
 
+    def test_three_point_prediction_produces_anchored_measurement(self):
+        frame = blank_frame()
+        mask = np.zeros((120, 240), dtype=bool)
+        mask[30:90, 40:200] = True
+        record = blank_record("src", "vid", 0, "a.png")
+        detection = (np.array([40, 30, 200, 90], dtype=float), 0.91, mask)
+
+        def anchors(_crop):
+            return np.array([[10, 5, 0.9], [150, 5, 0.9], [8, 12, 0.9]])
+
+        with patch("cowarch.prepare.predict_cows", return_value=[detection]):
+            outcome = process_frame(
+                frame,
+                record,
+                detector=object(),
+                cow_class=0,
+                config=PrepareConfig(center_band_fraction=1.0),
+                anchor_predictor=anchors,
+            )
+        self.assertTrue(outcome.accepted)
+        self.assertTrue(record["measurement_accepted"])
+        self.assertEqual(record["measurement_reject_reason"], "")
+        self.assertTrue(np.isfinite(record["anchored_sagitta_signed_norm"]))
+
+    def test_head_down_frame_is_retained_but_not_measured(self):
+        frame = blank_frame()
+        mask = np.zeros((120, 240), dtype=bool)
+        mask[30:90, 40:200] = True
+        record = blank_record("src", "vid", 0, "a.png")
+        detection = (np.array([40, 30, 200, 90], dtype=float), 0.91, mask)
+
+        def anchors(_crop):
+            return np.array([[10, 5, 0.9], [150, 5, 0.9], [8, 60, 0.9]])
+
+        with patch("cowarch.prepare.predict_cows", return_value=[detection]):
+            outcome = process_frame(
+                frame,
+                record,
+                detector=object(),
+                cow_class=0,
+                config=PrepareConfig(center_band_fraction=1.0, head_drop_max_norm=0.2),
+                anchor_predictor=anchors,
+            )
+        self.assertTrue(outcome.accepted)
+        self.assertFalse(record["measurement_accepted"])
+        self.assertEqual(record["measurement_reject_reason"], "head_down")
+
     def test_single_image_can_select_one_of_multiple_detections(self):
         frame = blank_frame()
         small_mask = np.zeros((120, 240), dtype=bool)

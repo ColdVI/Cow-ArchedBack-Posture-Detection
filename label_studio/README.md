@@ -76,7 +76,8 @@ python scripts/09_label_studio.py export-tasks \
 İkinci bir Label Studio projesinde
 `label_studio/configs/pass_b_geometry.xml` yapılandırmasını ve üretilen görev
 dosyasını kullan. Her isimden tam bir nokta bulunmalıdır; importer eksik veya
-tekrarlı noktaları reddeder.
+tekrarlı noktaları reddeder. Üretim sırası `withers, sacrum, head`'dir; head
+sagitta hesabına girmez, baş-aşağı frame filtresi için saklanır.
 
 Export sonucunu birleştir:
 
