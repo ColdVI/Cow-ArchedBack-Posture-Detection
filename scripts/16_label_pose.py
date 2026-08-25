@@ -21,6 +21,9 @@ from cowarch.io import as_bool, atomic_write_csv, read_manifest, resolve_data_pa
 from cowarch.pose import POSE_EDGES, POSE_KEYPOINTS, POSE_SCHEMA, parse_pose_points, serialize_pose_points
 
 
+HUD_HEIGHT = 86
+
+
 def require_cv2():
     try:
         import cv2
@@ -64,6 +67,8 @@ def main() -> None:
     reviewer = str(args.reviewer).strip()
     if not reviewer:
         raise ValueError("reviewer must not be empty")
+    if args.max_width < 320 or args.max_height <= HUD_HEIGHT + 100:
+        raise ValueError("max-width/max-height are too small for the labeling UI")
 
     frame = ensure_annotation_columns(read_manifest(args.manifest))
     selected = as_bool(frame["accepted"])
@@ -87,6 +92,19 @@ def main() -> None:
         print("No crops match the requested filters.")
         return
 
+    existing_paths = [
+        resolve_data_path(str(frame.at[index, "crop_path"]), args.manifest)
+        for index in indices
+    ]
+    if not any(path.is_file() for path in existing_paths):
+        example = existing_paths[0]
+        raise FileNotFoundError(
+            f"None of the {len(existing_paths)} selected crop files exists. "
+            f"Example missing path: {example}. The manifest may have been "
+            "generated on another machine; run scripts/19_ingest_pose_media.py "
+            "locally to create portable crop paths and images."
+        )
+
     cv2 = require_cv2()
     window = "Cow full pose - 19 keypoints"
     cv2.namedWindow(window, cv2.WINDOW_NORMAL)
@@ -104,9 +122,15 @@ def main() -> None:
             return
         if event not in (cv2.EVENT_LBUTTONDOWN, cv2.EVENT_RBUTTONDOWN):
             return
+        if y < HUD_HEIGHT:
+            return
         visibility = 2 if event == cv2.EVENT_LBUTTONDOWN else 1
         current_points.append(
-            [round(float(x) / current_scale, 3), round(float(y) / current_scale, 3), visibility]
+            [
+                round(float(x) / current_scale, 3),
+                round(float(y - HUD_HEIGHT) / current_scale, 3),
+                visibility,
+            ]
         )
 
     cv2.setMouseCallback(window, on_mouse)
@@ -122,18 +146,43 @@ def main() -> None:
             current_points = []
             continue
         height, width = image.shape[:2]
-        current_scale = min(1.0, args.max_width / width, args.max_height / height)
+        current_scale = min(
+            args.max_width / width,
+            (args.max_height - HUD_HEIGHT) / height,
+        )
+        display_width = max(1, int(round(width * current_scale)))
+        display_image_height = max(1, int(round(height * current_scale)))
+        cv2.resizeWindow(
+            window,
+            display_width,
+            display_image_height + HUD_HEIGHT,
+        )
         if not current_points:
             current_points = load_existing(row_index)
 
         while True:
-            display = cv2.resize(
+            resized = cv2.resize(
                 image,
-                (int(round(width * current_scale)), int(round(height * current_scale))),
-                interpolation=cv2.INTER_AREA,
+                (display_width, display_image_height),
+                interpolation=(
+                    cv2.INTER_CUBIC if current_scale > 1.0 else cv2.INTER_AREA
+                ),
+            )
+            display = cv2.copyMakeBorder(
+                resized,
+                HUD_HEIGHT,
+                0,
+                0,
+                0,
+                cv2.BORDER_CONSTANT,
+                value=(20, 27, 34),
             )
             scaled_points = [
-                (int(round(float(x) * current_scale)), int(round(float(y) * current_scale)), int(v))
+                (
+                    int(round(float(x) * current_scale)),
+                    int(round(float(y) * current_scale)) + HUD_HEIGHT,
+                    int(v),
+                )
                 for x, y, v in current_points
             ]
             for left, right in POSE_EDGES:
@@ -166,7 +215,7 @@ def main() -> None:
             )
             lines = [
                 f"{cursor + 1}/{len(indices)}  {len(current_points)}/{len(POSE_KEYPOINTS)}  NEXT: {next_name}",
-                "LEFT visible | RIGHT occluded | 0 missing | Z undo | R reset",
+                "LEFT visible | RIGHT occluded | 0 missing | Z/U undo | R reset",
                 "ENTER save+next | N skip image | B previous | Q quit",
             ]
             for line_number, text in enumerate(lines):
@@ -178,17 +227,17 @@ def main() -> None:
             key = cv2.waitKey(30) & 0xFF
             if key == 255:
                 continue
-            if key in (ord("q"), 27):
+            if key in (ord("q"), ord("Q"), 27):
                 atomic_write_csv(frame, args.manifest)
                 cv2.destroyAllWindows()
                 print(f"saved full-pose progress to {args.manifest}")
                 return
-            if key in (ord("0"), ord("m")) and len(current_points) < len(POSE_KEYPOINTS):
+            if key in (ord("0"), ord("m"), ord("M")) and len(current_points) < len(POSE_KEYPOINTS):
                 current_points.append([0.0, 0.0, 0])
-            elif key in (ord("z"), 8, 127):
+            elif key in (ord("z"), ord("Z"), ord("u"), ord("U"), 8, 127):
                 if current_points:
                     current_points.pop()
-            elif key == ord("r"):
+            elif key in (ord("r"), ord("R")):
                 current_points = []
             elif key in (10, 13):
                 if len(current_points) != len(POSE_KEYPOINTS):
@@ -201,14 +250,14 @@ def main() -> None:
                 cursor += 1
                 current_points = []
                 break
-            elif key == ord("n"):
+            elif key in (ord("n"), ord("N")):
                 frame.at[row_index, "pose_status"] = "skipped"
                 frame.at[row_index, "pose_reviewed_by"] = reviewer
                 atomic_write_csv(frame, args.manifest)
                 cursor += 1
                 current_points = []
                 break
-            elif key == ord("b"):
+            elif key in (ord("b"), ord("B")):
                 cursor = max(0, cursor - 1)
                 current_points = []
                 break

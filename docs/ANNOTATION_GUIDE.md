@@ -159,7 +159,9 @@ python scripts/16_label_pose.py \
   --reviewer anil
 ```
 
-Etiketleme penceresinde `Z` son noktayı geri alır, `R` kareyi sıfırlar,
+Etiketleme penceresi crop'ı kullanılabilir ekran alanına otomatik büyütür ve
+üstteki kontrol bandı tıklama kabul etmez. `Z` veya `U` son noktayı geri alır,
+`R` kareyi sıfırlar,
 `Enter` tamamlanmış 19 pozisyonu kaydedip sonraki crop'a geçer. `N` o crop'ı
 `pose_status=skipped` olarak kaydeder, `B` önceki crop'a döner ve `Q` mevcut
 ilerlemeyi kaydedip çıkar. Atlanan veya etiketlenmiş örnekleri yeniden açmak için
