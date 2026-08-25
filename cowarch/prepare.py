@@ -62,6 +62,7 @@ class PrepareConfig:
     anchor_confidence: float = 0.5
     head_drop_max_norm: float = 0.30
     center_band_fraction: float = 0.50
+    allow_fragmented_mask: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -76,6 +77,7 @@ class PrepareConfig:
             "anchor_confidence": self.anchor_confidence,
             "head_drop_max_norm": self.head_drop_max_norm,
             "center_band_fraction": self.center_band_fraction,
+            "allow_fragmented_mask": self.allow_fragmented_mask,
         }
 
 
@@ -296,9 +298,15 @@ def process_frame(
         if record["mask_component_count"] > 1:
             record["reject_reason"] = "fragmented_mask"
             record["measurement_reject_reason"] = "fragmented_mask"
-            return outcome
+            if not config.allow_fragmented_mask:
+                return outcome
+            record["reject_reason"] = ""
 
-        if not record["center_band_eligible"]:
+        if record["mask_component_count"] > 1:
+            # A rail-split silhouette can still be useful for manual pose
+            # clicks, but never enters production dorsal measurement.
+            pass
+        elif not record["center_band_eligible"]:
             record["measurement_reject_reason"] = "outside_center_band"
         elif anchor_predictor is None:
             record["measurement_reject_reason"] = "missing_anchor_model"

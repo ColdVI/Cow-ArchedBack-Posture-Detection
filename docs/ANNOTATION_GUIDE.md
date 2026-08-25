@@ -108,6 +108,69 @@ geometriyi bağımsız bir ölçüm olarak kaydeder. Bu ayrım, geometriyi groun
 etiket gibi döngüsel kullanmayı ve reviewer alanlarının birbirine karışmasını
 önler.
 
+## Deneysel Pass C — 19-nokta tam postür
+
+Ayak fazı ile sırt postürünü aynı crop üzerinde araştırmak için ayrı
+`cow_pose_19_v1` şeması kullanılabilir. Bu şema Pass B'deki üretim sözleşmesini
+değiştirmez: v1 ölçümü hâlâ yalnız `withers, sacrum, head` anchor'ları ve yoğun
+segmentasyon profiliyle yapılır. Pass C verisi `pose_keypoints_json` alanında
+saklanır; `keypoints_json` alanına yazılmaz.
+
+Sabit tıklama sırası şöyledir:
+
+| No | Nokta | Anatomik yer |
+|---:|---|---|
+| 1 | `poll` | Boynuzlar arasının hemen gerisi; oksipital/poll bölgesinin dorsal merkezi |
+| 2 | `neck_mid` | Poll ile withers arasındaki dorsal boyun hattının anatomik orta noktası |
+| 3 | `withers` | Kürek kemikleri üzerindeki cidago; gövde dorsal hattının ön çapası |
+| 4–6 | `dorsal_25/50/75` | Withers–sacrum hattı boyunca yaklaşık %25, %50 ve %75 konumları; tüy siluetinin üst sınırı |
+| 7 | `sacrum` | Kuyruk kökünün hemen önü; pelvis üzerindeki dorsal arka çapa |
+| 8–10 | `near_front_*` | Kameraya yakın ön bacağın karpus, fetlock ve tırnak zemine temas merkezi |
+| 11–13 | `far_front_*` | Kameradan uzak ön bacağın aynı üç noktası |
+| 14–16 | `near_hind_*` | Kameraya yakın arka bacağın hock, fetlock ve tırnak zemine temas merkezi |
+| 17–19 | `far_hind_*` | Kameradan uzak arka bacağın aynı üç noktası |
+
+`near` görüntüdeki sağ/sol yönü değil, kameraya yakınlık anlamına gelir; hayvan
+hangi yöne bakarsa baksın değişmez. Dorsal ara noktalar düz görüntü koordinatı
+interpolasyonu değildir: gerçek tüy/sırt silueti üzerinde işaretlenir.
+
+Görünürlük kuralı COCO/YOLO ile uyumludur:
+
+- Sol tık (`v=2`): anatomik nokta doğrudan görülüyor.
+- Sağ tık (`v=1`): nokta korkuluk veya diğer bacağın arkasında, fakat konumu
+  komşu anatomiden güvenle çıkarılabiliyor.
+- `0`/`M` (`v=0`): nokta crop dışında, ağır oklüzyonda veya güvenle tahmin
+  edilemiyor. Koordinat otomatik olarak `(0,0)` kaydedilir.
+
+Her noktayı her karede doldurmak hedef değildir. Özellikle korkuluk arkasında
+uydurma ayak noktası, eksik etiketten daha zararlıdır. Aynı videonun ardışık
+kareleri train/validation/test arasında bölünmez; passage bazında gruplanır.
+
+Etiketleme turu:
+
+```bash
+python scripts/19_ingest_pose_media.py \
+  --input-dir "/Users/anil/Downloads/inek data ve metadoloji" \
+  --output-dir data/pose_round_01 \
+  --target-fps 2
+
+python scripts/16_label_pose.py \
+  --manifest data/pose_round_01/manifest.csv \
+  --reviewer anil
+```
+
+Etiketleme penceresinde `Z` son noktayı geri alır, `R` kareyi sıfırlar,
+`Enter` tamamlanmış 19 pozisyonu kaydedip sonraki crop'a geçer. `N` o crop'ı
+`pose_status=skipped` olarak kaydeder, `B` önceki crop'a döner ve `Q` mevcut
+ilerlemeyi kaydedip çıkar. Atlanan veya etiketlenmiş örnekleri yeniden açmak için
+`--include-reviewed` kullanılır.
+
+Manifest ayrıca `pose_candidate` ve `pose_prefilter_reason` alanlarını taşır.
+Bu yalnız ilk kuyruğu hızlandıran otomatik bir ön filtredir; anatomi etiketi
+değildir. Kenardan kesilmiş, çok küçük, düşük güvenli veya belirgin non-lateral
+kutular varsayılan kuyrukta gösterilmez. Bunların tümünü ayrıca incelemek için
+`--include-noncandidates` kullanılabilir.
+
 ## Session kalite kontrolü
 
 - Reviewer kimliği, protokol sürümü ve session tarihi kaydedilir.

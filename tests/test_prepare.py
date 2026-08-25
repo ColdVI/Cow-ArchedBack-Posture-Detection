@@ -97,6 +97,25 @@ class PrepareTests(unittest.TestCase):
         self.assertEqual(outcome.reject_reason, "fragmented_mask")
         self.assertEqual(record["mask_component_count"], 2)
 
+    def test_fragmented_mask_can_be_kept_for_manual_pose_only(self):
+        frame = blank_frame()
+        mask = np.zeros((120, 240), dtype=bool)
+        mask[30:60, 40:90] = True
+        mask[30:60, 120:180] = True
+        record = blank_record("src", "vid", 0, "a.png")
+        detection = (np.array([40, 25, 185, 65], dtype=float), 0.91, mask)
+        with patch("cowarch.prepare.predict_cows", return_value=[detection]):
+            outcome = process_frame(
+                frame,
+                record,
+                detector=object(),
+                cow_class=0,
+                config=PrepareConfig(allow_fragmented_mask=True),
+            )
+        self.assertTrue(outcome.accepted)
+        self.assertEqual(record["measurement_reject_reason"], "fragmented_mask")
+        self.assertEqual(record["mask_component_count"], 2)
+
     def test_three_point_prediction_produces_anchored_measurement(self):
         frame = blank_frame()
         mask = np.zeros((120, 240), dtype=bool)

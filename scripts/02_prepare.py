@@ -20,7 +20,13 @@ from cowarch.camera import load_calibration, undistort_image
 from cowarch.detect import load_detector
 from cowarch.frames import iter_frames, probe_source
 from cowarch.io import atomic_write_csv
-from cowarch.prepare import PrepareConfig, blank_record, frame_timestamp_utc, process_frame
+from cowarch.prepare import (
+    PrepareConfig,
+    blank_record,
+    frame_timestamp_utc,
+    process_frame,
+    process_frame_all_cows,
+)
 
 
 def scalar_bool(value) -> bool:
@@ -42,8 +48,27 @@ def main() -> None:
     parser.add_argument("--side-aspect", type=float, default=1.40)
     parser.add_argument("--hard-side-filter", action="store_true")
     parser.add_argument("--reject-border", action="store_true")
+    parser.add_argument(
+        "--allow-fragmented-mask",
+        action="store_true",
+        help=(
+            "Keep rail-split crops for manual annotation while retaining "
+            "measurement_reject_reason=fragmented_mask."
+        ),
+    )
     parser.add_argument("--dedup-hamming", type=int, default=4)
     parser.add_argument("--max-per-source", type=int, default=0)
+    parser.add_argument(
+        "--all-cows",
+        action="store_true",
+        help="Write one candidate crop per detected cow instead of rejecting crowded frames.",
+    )
+    parser.add_argument(
+        "--overlap-iou-max",
+        type=float,
+        default=0.30,
+        help="Suppress duplicate/rail-fragment candidates above this IoU in --all-cows mode.",
+    )
     parser.add_argument(
         "--measurement-stream",
         action="store_true",
@@ -67,6 +92,8 @@ def main() -> None:
 
     if args.target_fps <= 0:
         raise ValueError("target-fps must be positive")
+    if not 0 <= args.overlap_iou_max <= 1:
+        raise ValueError("overlap-iou-max must be in [0, 1]")
     if not 0 < args.center_band_fraction <= 1:
         raise ValueError("center-band-fraction must be in (0, 1]")
     if args.measurement_stream and args.target_fps < 20:
@@ -88,6 +115,7 @@ def main() -> None:
         anchor_confidence=args.anchor_confidence,
         head_drop_max_norm=args.head_drop_max_norm,
         center_band_fraction=args.center_band_fraction,
+        allow_fragmented_mask=args.allow_fragmented_mask,
     )
     sources = pd.read_csv(args.sources, keep_default_na=False, comment="#")
     required = {"source_id", "kind"}
@@ -166,60 +194,91 @@ def main() -> None:
         source_anchor_predictor = anchor_predictor if camera_role == "measurement" else None
         source_calibration = calibration if camera_role == "measurement" else None
 
+        stop_source = False
         for frame_idx, frame, original_name in iter_frames(path, kind, args.target_fps):
             if args.max_per_source and kept_count >= args.max_per_source:
                 break
             if source_calibration is not None:
                 frame = undistort_image(frame, source_calibration)
-            record = blank_record(source_id, video_id, frame_idx, original_name)
-            record["raw_source_path"] = str(path.resolve())
-            record["timestamp_utc"] = frame_timestamp_utc(
-                start_timestamp, frame_idx, source_fps
-            )
-            record["source_score"] = source.get("source_score", "")
-            record["license"] = source.get("license", "")
-            for column in (
-                "license_status", "license_name", "license_url", "farm_id", "cow_id",
-                "passage_id", "camera_id",
-            ):
-                record[column] = source.get(column, "")
-            record["is_ir"] = scalar_bool(source.get("is_ir", False))
-            record["camera_role"] = camera_role
-            record["undistortion_applied"] = source_calibration is not None
-            record["center_band_fraction"] = args.center_band_fraction
-            mitigations = []
-            if source_calibration is not None:
-                mitigations.append("plumb_line_undistortion")
-            if camera_role == "measurement" and args.center_band_fraction < 1.0:
-                mitigations.append("center_band")
-            record["camera_mitigation"] = "+".join(mitigations) or "none"
+            def make_record(candidate_index: int | None = None) -> dict:
+                record = blank_record(source_id, video_id, frame_idx, original_name)
+                if candidate_index is not None:
+                    record["sample_id"] = (
+                        f"{record['sample_id']}_cow{candidate_index:02d}"
+                    )
+                    record["candidate_index"] = int(candidate_index)
+                record["raw_source_path"] = str(path.resolve())
+                record["timestamp_utc"] = frame_timestamp_utc(
+                    start_timestamp, frame_idx, source_fps
+                )
+                record["source_score"] = source.get("source_score", "")
+                record["license"] = source.get("license", "")
+                for column in (
+                    "license_status", "license_name", "license_url", "farm_id", "cow_id",
+                    "passage_id", "camera_id",
+                ):
+                    record[column] = source.get(column, "")
+                record["is_ir"] = scalar_bool(source.get("is_ir", False))
+                record["camera_role"] = camera_role
+                record["undistortion_applied"] = source_calibration is not None
+                record["center_band_fraction"] = args.center_band_fraction
+                mitigations = []
+                if source_calibration is not None:
+                    mitigations.append("plumb_line_undistortion")
+                if camera_role == "measurement" and args.center_band_fraction < 1.0:
+                    mitigations.append("center_band")
+                record["camera_mitigation"] = "+".join(mitigations) or "none"
+                return record
 
-            outcome = process_frame(
-                frame,
-                record,
-                detector=detector,
-                cow_class=cow_class,
-                config=config,
-                last_hash=last_kept_hash,
-                anchor_predictor=source_anchor_predictor,
-            )
-            if not outcome.accepted:
+            if args.all_cows:
+                outcomes = process_frame_all_cows(
+                    frame,
+                    make_record,
+                    detector=detector,
+                    cow_class=cow_class,
+                    config=config,
+                    last_hash=last_kept_hash,
+                    overlap_iou_max=args.overlap_iou_max,
+                    anchor_predictor=source_anchor_predictor,
+                )
+            else:
+                record = make_record()
+                outcomes = [
+                    process_frame(
+                        frame,
+                        record,
+                        detector=detector,
+                        cow_class=cow_class,
+                        config=config,
+                        last_hash=last_kept_hash,
+                        anchor_predictor=source_anchor_predictor,
+                    )
+                ]
+
+            for outcome in outcomes:
+                record = outcome.record
+                if outcome.accepted and args.max_per_source and kept_count >= args.max_per_source:
+                    stop_source = True
+                    break
+                if not outcome.accepted:
+                    records.append(record)
+                    continue
+
+                crop_path = crop_dir / f"{record['sample_id']}.jpg"
+                if not cv2.imwrite(str(crop_path), outcome.crop):
+                    raise RuntimeError(f"Could not write crop: {crop_path}")
+                record["crop_path"] = str(crop_path.resolve())
+
+                if outcome.mask is not None:
+                    mask_path = mask_dir / f"{record['sample_id']}.png"
+                    cv2.imwrite(str(mask_path), outcome.mask.astype(np.uint8) * 255)
+                    record["mask_path"] = str(mask_path.resolve())
+
                 records.append(record)
-                continue
-
-            crop_path = crop_dir / f"{record['sample_id']}.jpg"
-            if not cv2.imwrite(str(crop_path), outcome.crop):
-                raise RuntimeError(f"Could not write crop: {crop_path}")
-            record["crop_path"] = str(crop_path.resolve())
-
-            if outcome.mask is not None:
-                mask_path = mask_dir / f"{record['sample_id']}.png"
-                cv2.imwrite(str(mask_path), outcome.mask.astype(np.uint8) * 255)
-                record["mask_path"] = str(mask_path.resolve())
-
-            records.append(record)
-            last_kept_hash = outcome.hash_value
-            kept_count += 1
+                last_kept_hash = outcome.hash_value
+                kept_count += 1
+            if stop_source:
+                break
 
         print(f"{source_id}: kept {kept_count} samples")
 

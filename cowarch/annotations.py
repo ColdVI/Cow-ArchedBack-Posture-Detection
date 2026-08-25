@@ -14,9 +14,15 @@ ANNOTATION_COLUMNS = (
     "label",
     "keypoints_json",
     "anchors_json",
+    "pose_keypoints_json",
+    "pose_schema",
+    "pose_status",
+    "pose_candidate",
+    "pose_prefilter_reason",
     "reviewed_by",
     "posture_reviewed_by",
     "geometry_reviewed_by",
+    "pose_reviewed_by",
     "annotation_pass",
 )
 

@@ -205,8 +205,12 @@ IR/gece ve parçalanmış maske slice'ları raporda ayrıca kalır.
 ## Etiketleme ve detektör
 
 - [docs/ANNOTATION_GUIDE.md](docs/ANNOTATION_GUIDE.md): kör Pass A ve üç-nokta
-  Pass B protokolü.
+  Pass B protokolü; ayrıca deneysel 19-nokta tam-postür turu.
 - `label_studio/configs/pass_b_geometry.xml`: withers/sacrum/head arayüzü.
+- `scripts/16_label_pose.py`: görünürlük bilgili, mouse-first tam-postür
+  etiketleyicisi. Bu katman üretim Pass B şemasının yerini almaz.
+- `scripts/19_ingest_pose_media.py`: yerel MP4/görüntü klasörünü tarar, her
+  karedeki inekleri ayrı kırpar ve tam-postür manifestini üretir.
 - `scripts/13_train_detector.py`: IR/gece ve korkuluk arkası örnekleri zorunlu
   detektör fine-tuning preflight'ı; varsayılan `YOLO11m-seg` ve held-out
   withers–sacrum topline MAE değerlendirmesi.
@@ -220,6 +224,27 @@ python scripts/13_train_detector.py \
   --topline-eval data/detector/topline_eval.csv \
   --output-dir outputs/detector_v1
 ```
+
+Yerel saha medyasından hızlı bir tam-postür etiketleme turu hazırlamak için:
+
+```bash
+python scripts/19_ingest_pose_media.py \
+  --input-dir "/Users/anil/Downloads/inek data ve metadoloji" \
+  --output-dir data/pose_round_01 \
+  --target-fps 2
+
+python scripts/16_label_pose.py \
+  --manifest data/pose_round_01/manifest.csv \
+  --reviewer anil
+```
+
+Etiketleyicide sol tık görünür, sağ tık korkuluk/başka bacak arkasında olup
+konumu güvenle çıkarılabilen nokta, `0` ise tahmin edilmemesi gereken kayıp
+noktadır. `Enter` kaydeder; `Z` geri alır. Kaynaklar yerinde bırakılır, yalnız
+crop/mask/manifest `--output-dir` altında oluşur. Mevcut geniş açı, korkuluk ve
+tepeden görüntüler `passage_detection` verisidir; measurement-kamera geometrisi
+olarak işaretlenmez. Görüntü dosyalarında düşük-kroma IR tahmini `is_ir` ve
+`ir_inference` alanlarına yazılır; video IR durumu otomatik tahmin edilmez.
 
 `topline_eval.csv`, `image,ground_truth_mask,withers_x,sacrum_x,is_ir,behind_rails`
 kolonlarını taşır. Rapor ana seçim metriği olarak piksel topline MAE'yi ve gövde
